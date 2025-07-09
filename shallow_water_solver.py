@@ -4,36 +4,40 @@ import gmsh
 
 # Initialize Gmsh for mesh reading
 gmsh.initialize()
-gmsh.open("data/test.msh")  # Replace with your mesh file
+gmsh.open("data/rectangle_mesh.msh")  # Replace with your mesh file
 
-# Mesh data extraction
-nodes = np.array(gmsh.model.mesh.get_nodes()[1]).reshape(-1, 3)[:, :2]  # 2D coordinates
+print("\n--- Mesh Information ---")
+node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
+print(f"Total number of nodes: {len(node_tags)}")
 
-dim = 2  # Example: Get surface elements
-entities = gmsh.model.getEntities(dim)
-for e in entities:
-    dim, tag = e[0], e[1]
-    elementTypes, elementTags, nodeTags = gmsh.model.mesh.getElements(dim, tag)
+# Get all elements in the model
+element_types, element_tags, element_node_tags = gmsh.model.mesh.getElements()
+print(f"Total number of element types found: {len(element_types)}")
 
-    if elementTypes.size == 0:
-        continue  # No elements for this entity
+for i, elem_type in enumerate(element_types):
+    # Get information about the element type (name, dimension, number of nodes)
+    elem_name, elem_dim, order, num_nodes_per_elem, _, _ = (
+        gmsh.model.mesh.getElementProperties(elem_type)
+    )
 
-    for i in range(len(elementTypes)):
-        elementType = elementTypes[i]
-        elementTagList = elementTags[i]
-        nodeTagList = nodeTags[i]
+    if num_nodes_per_elem == 4 or num_nodes_per_elem == 2:
+        print(
+            f"\nElement Type: {elem_name} (Type ID: {elem_type}, Dimension: {elem_dim}, Nodes per element: {num_nodes_per_elem})"
+        )
+        print(f"Number of elements of this type: {len(element_tags[i])}")
+        # # Iterate through elements of the current type
+        # current_node_idx = 0
+        # for j, tag in enumerate(element_tags[i]):
+        #     # Extract node tags for the current element
+        #     nodes = element_node_tags[i][
+        #         current_node_idx : current_node_idx + num_nodes_per_elem
+        #     ]
+        #     print(f"{tag:<10} | {' '.join(map(str, nodes))}")
+        #     current_node_idx += num_nodes_per_elem
 
-        print(f"  Elements for entity (dim={dim}, tag={tag}):")
-        print(f"    Element type: {elementType}")
-        print(f"    Number of elements: {len(elementTagList)}")
-        print(f"    Element tags: {elementTagList}")
-        print(f"    Node tags for each element: {nodeTagList}")
-
+# Finalize Gmsh
 gmsh.finalize()
 
-
-# elements = gmsh.model.mesh.get_elements_by_type(3)  # Quadrilaterals
-# triangles = gmsh.model.mesh.get_elements_by_type(2)  # Triangles
 
 # Constants
 g = 9.81  # Gravity
@@ -41,12 +45,20 @@ dt = 0.01  # Time step
 t_end = 1.0  # End time
 
 # Conserved variables: h, hu, hv
-U = np.zeros((len(elements[1]) + len(triangles[1]), 3))  # [h, hu, hv]
+elem_tags = element_tags[1]
+elem_conn = element_node_tags[1].reshape(-1, 4)
+node_tags
+node_coord = node_coords.reshape(-1, 3)
+bc_tags = element_tags[0]
+bc_conn = element_node_tags[0].reshape(-1, 2)
+
+nelem = len(elem_tags)
+U = np.zeros((nelem, 3))  # [h, hu, hv]
 
 # Initialize Riemann problem (discontinuity at x=0)
-for i, elem in enumerate(elements[1]):
-    centroid = np.mean(nodes[elem - 1], axis=0)
-    U[i] = [1.0, 0.0, 0.0] if centroid[0] < 0 else [0.5, 0.0, 0.0]
+for i, elem in enumerate(elem_conn):
+    centroid = np.mean(node_coord[elem - 1], axis=0)
+    U[i] = [1.0, 0.0, 0.0] if centroid[0] < 50 else [0.5, 0.0, 0.0]
 
 
 # Minmod limiter for MUSCL
@@ -112,7 +124,7 @@ def solve():
     t = 0.0
     while t < t_end:
         U_new = U.copy()
-        for i, elem in enumerate(elements[1]):
+        for i, elem in enumerate(elem_conn):
             # Assume cell_neighbors stores indices of neighboring cells
             cell_neighbors = get_neighbors(i)  # Implement based on mesh connectivity
             for j in cell_neighbors:
