@@ -1,6 +1,7 @@
 import numpy as np
 from src.mesh import get_face_normal_and_length, compute_cell_centroids
 
+
 # Minmod limiter for MUSCL
 def minmod(a, b):
     if a * b > 0:
@@ -63,6 +64,7 @@ def hllc_flux(U_L, U_R, normal, g):
             return F_L + S_L * (U_star_L - U_L)
         else:
             return F_R + S_R * (U_star_R - U_R)
+
 
 def compute_gradients(
     U, all_neighbors, cell_centroids, elem_conn, node_coord, cell_areas
@@ -130,7 +132,9 @@ def muscl_reconstruction(U, gradients, cell_centroids, i, j, elem_conn, node_coo
 
 
 # Main solver loop
-def solve(U, elem_conn, node_coord, all_neighbors, cell_areas, cell_centroids, g, dt, t_end):
+def solve(
+    U, elem_conn, node_coord, all_neighbors, cell_areas, cell_centroids, g, dt, t_end
+):
     t = 0.0
     history = []
     nelem = len(elem_conn)
@@ -145,16 +149,101 @@ def solve(U, elem_conn, node_coord, all_neighbors, cell_areas, cell_centroids, g
                 normal, length = get_face_normal_and_length(i, j, elem_conn, node_coord)
                 if length is not None and length > 0:
                     U_L, U_R = muscl_reconstruction(
-                        U, gradients, cell_centroids, i, j, elem_conn, node_coord
+                        U,
+                        gradients,
+                        cell_centroids,
+                        i,
+                        j,
+                        elem_conn,
+                        node_coord,
                     )
 
                     flux = hllc_flux(U_L, U_R, normal, g)
 
                     U_new[i] -= (dt / cell_areas[i]) * flux * length
+            # Apply boundary conditions (example: reflective boundaries)
+            # Note: This is a placeholder and needs proper implementation
+            boundary_info = get_boundary_faces(i, elem_conn)
+
+            inlet_values = (1.0, 1.0, 0.2)
+
+            for edge, boundary_tag in boundary_info:
+                # Need to find a neighbor index for boundary faces.  Using a dummy value for now.
+                #  The correct approach depends on how your mesh is structured.
+                #  In many cases, you might have a "ghost cell" or a special index to represent boundaries.
+                neighbor_idx = (
+                    -1
+                )  #  Placeholder: Replace with your boundary representation
+                normal, length = get_face_normal_and_length(
+                    i, neighbor_idx, elem_conn, node_coord, edge
+                )
+                # normal, length = get_face_normal_and_length(
+                #     i, boundary_idx, elem_conn, node_coord
+                # )
+
+                bc_type = boundary_tag  # Use the tag directly
+                if bc_type == "inlet":
+                    U_ghost = apply_boundary_condition(
+                        U[i], normal, bc_type, inlet_values=inlet_values
+                    )
+                else:
+                    U_ghost = apply_boundary_condition(U[i], normal, bc_type)
+                if length is not None and length > 0:
+                    U_ghost = apply_boundary_condition(U[i], normal, "reflective")
+                    flux = hllc_flux(U[i], U_ghost, normal, g)
 
         U[:] = U_new
         t += dt
         if int(t / dt) % 10 == 0:  # Print progress
-            print(f"t = {t:.4f}")
+            print(f"t = {t:.2f}")
             history.append(U.copy())
     return history
+
+
+def get_boundary_faces(elem_idx, elem_conn):
+    """
+    Identifies boundary faces for a given element.
+
+    Args:
+        elem_idx (int): Index of the element.
+        elem_conn (np.ndarray): Element connectivity array.
+
+    Returns:
+        list: List of node indices forming boundary faces.  Returns empty list if no boundary face found.
+    """
+    elem_nodes = elem_conn[elem_idx]
+    boundary_info = []
+    for i in range(4):
+        node1 = elem_nodes[i]
+        node2 = elem_nodes[(i + 1) % 4]
+        edge = tuple(sorted((node1, node2)))
+        if edge in boundary_edges:
+            # Assuming boundary_edges dictionary has edge: tag mapping
+            boundary_info.append((edge, boundary_edges[edge]))
+    return boundary_info
+
+
+def apply_boundary_condition(U_inside, normal, bc_type, **kwargs):
+    """
+    Applies a boundary condition and returns the ghost cell value.
+    """
+    if bc_type == "inlet":
+        if "inlet_values" in kwargs:
+            h_in, u_in, v_in = kwargs["inlet_values"]
+            U_ghost = np.array([h_in, h_in * u_in, h_in * v_in])
+        else:
+            U_ghost = U_inside  # Default to interior value if no inlet values provided
+    elif bc_type == "outlet":  # Extrapolate
+        U_ghost = U_inside
+    elif bc_type == "wall":  # Reflective
+        U_ghost = U_inside  # Assuming no-penetration for simplicity
+    else:  # Default or unknown BC
+        U_ghost = U_inside
+
+    return U_ghost
+
+
+def initialize_boundary_edges(elem_conn, boundary_nodes):
+    # Create a dictionary mapping boundary edges (tuples of sorted node tags) to boundary tags.
+    # Placeholder:  This needs to be filled using mesh data.
+    return {(1, 2): 1, (3, 4): 2}  # Example: Replace with actual boundary data.

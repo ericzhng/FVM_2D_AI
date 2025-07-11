@@ -1,4 +1,3 @@
-import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 from matplotlib.collections import PatchCollection
@@ -90,11 +89,22 @@ def visualize_results(U, elem_conn, node_coord, t):
     p = PatchCollection(patches, alpha=0.9)
     p.set_array(h)
     ax.add_collection(p)
+    p.set_clim(0, 1)
     fig.colorbar(p, ax=ax, label="Water Height (h)")
 
     # Overlay velocity vectors
     centroids = compute_cell_centroids(elem_conn, node_coord)
-    ax.quiver(centroids[:, 0], centroids[:, 1], u, v, color="white", scale=50)
+    ax.quiver(
+        centroids[:, 0],
+        centroids[:, 1],
+        u,
+        v,
+        angles="xy",
+        scale_units="xy",
+        color="green",
+        scale=0.5,
+        width=0.002,  # Make arrows thinner
+    )
 
     ax.set_aspect("equal", "box")
     ax.set_title(f"Final Simulation Results at t = {t:.4f}")
@@ -136,5 +146,4 @@ def create_animation(history, elem_conn, node_coord, dt, interval=100):
         repeat=True,
         repeat_delay=3000,
     )
-    plt.show()
-    # anim.save("shallow_water.gif", writer="imagemagick")
+    anim.save("shallow_water.gif", writer="imagemagick")

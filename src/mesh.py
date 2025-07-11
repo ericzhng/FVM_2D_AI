@@ -1,6 +1,7 @@
 import numpy as np
 import gmsh
 
+
 def read_mesh(mesh_file):
     """
     Reads a mesh file using gmsh and extracts node and element information.
@@ -30,8 +31,32 @@ def read_mesh(mesh_file):
     elem_tags_quad = element_tags[1]
     elem_conn = np.array(element_node_tags[1]).reshape(-1, 4)
     node_coord = np.array(node_coords).reshape(-1, 3)
-    
+
     return node_tags, node_coord, elem_tags_quad, elem_conn
+
+    #  No longer returning boundary edges here.  Moved to main.py.
+    # # Extract boundary edges and their tags (for Gmsh with physical groups)
+    # boundary_edges = {}
+    # for dim, tag in gmsh.model.getPhysicalGroups():
+    #     if dim == 1:  # 1D entities are edges
+    #         name = gmsh.model.getPhysicalName(dim, tag)
+    #         # Get entities (edges) belonging to this physical group
+    #         entities = gmsh.model.getEntitiesForPhysicalGroup(dim, tag)
+    #         for entity in entities:
+    #             # Get the nodes forming the edge
+    #             edge_nodes = gmsh.model.mesh.getNodesForPhysicalGroup(dim, tag, entity)
+    #             if len(edge_nodes) == 2:
+    #                 # Store the edge (sorted node tags) and its boundary tag
+    #                 edge = tuple(sorted(edge_nodes))
+    #                 boundary_edges[edge] = name
+    #             else:
+    #                 print(
+    #                     f"Warning: Unexpected number of nodes ({len(edge_nodes)}) for boundary edge in group '{name}', skipping."
+    #                 )
+
+    # # ... (rest of your code)
+    # return node_tags, node_coord, elem_tags_quad, elem_conn
+
 
 def get_neighbors(elem_conn):
     """
@@ -64,12 +89,16 @@ def get_neighbors(elem_conn):
             node2 = elem_nodes[(j + 1) % 4]
             face = tuple(sorted((node1, node2)))
             for neighbor_idx in face_to_elem[face]:
-                if neighbor_idx != i:
-                    neighbors.append(neighbor_idx)
+                neighbors.append(neighbor_idx)
+        # Remove self as neighbor
+        neighbors = [n for n in neighbors if n != i]
         all_neighbors[i] = list(set(neighbors))
     return all_neighbors
 
-def get_face_normal_and_length(elem_idx, neighbor_idx, elem_conn, node_coord):
+
+def get_face_normal_and_length(
+    elem_idx, neighbor_idx, elem_conn, node_coord, edge=None
+):
     """
     Computes the normal and length of the face between two elements.
 
@@ -80,10 +109,17 @@ def get_face_normal_and_length(elem_idx, neighbor_idx, elem_conn, node_coord):
         node_coord (np.ndarray): Node coordinates array.
 
     Returns:
-        tuple: A tuple containing:
-            - normal (np.ndarray): The normal vector of the face.
-            - length (float): The length of the face.
+        tuple:  (normal, length) of the face.  Returns (0,0), 0 if no common face.
     """
+    if neighbor_idx == -1 and edge is not None:  # Boundary face case
+        p1 = node_coord[edge[0] - 1]
+        p2 = node_coord[edge[1] - 1]
+
+        dx = p2[0] - p1[0]
+        dy = p2[1] - p1[1]
+        length = np.sqrt(dx**2 + dy**2)
+        normal = np.array([dy / length, -dx / length])
+        return normal, length
     elem1_nodes = set(elem_conn[elem_idx])
     elem2_nodes = set(elem_conn[neighbor_idx])
 
@@ -116,6 +152,7 @@ def get_face_normal_and_length(elem_idx, neighbor_idx, elem_conn, node_coord):
 
     return normal, length
 
+
 def compute_cell_areas(elem_conn, node_coord):
     """
     Computes the areas of all cells.
@@ -134,6 +171,7 @@ def compute_cell_areas(elem_conn, node_coord):
         y = nodes[:, 1]
         areas[i] = 0.5 * np.abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
     return areas
+
 
 def compute_cell_centroids(elem_conn, node_coord):
     """
