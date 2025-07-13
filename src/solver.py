@@ -1,16 +1,29 @@
 import numpy as np
-from src.mesh import get_face_normal_and_length, compute_cell_centroids
+from src.mesh import Mesh
 
 
-# Minmod limiter for MUSCL
-def minmod(a, b):
-    if a * b > 0:
-        return min(abs(a), abs(b)) * np.sign(a)
-    return 0.0
+# --- Limiter Functions ---
+def barth_jespersen_limiter(r):
+    return np.minimum(1, r)
 
 
-# HLLC flux calculation for 2D Shallow Water Equations
+def minmod_limiter(r):
+    return np.maximum(0, np.minimum(1, r))
+
+
+def superbee_limiter(r):
+    return np.maximum(0, np.maximum(np.minimum(2 * r, 1), np.minimum(r, 2)))
+
+
+LIMITERS = {
+    "barth_jespersen": barth_jespersen_limiter,
+    "minmod": minmod_limiter,
+    "superbee": superbee_limiter,
+}
+
+
 def hllc_flux(U_L, U_R, normal, g):
+    """Calculates the HLLC flux for the 2D Shallow Water Equations."""
     h_L, hu_L, hv_L = U_L
     h_R, hu_R, hv_R = U_R
 
@@ -19,18 +32,15 @@ def hllc_flux(U_L, U_R, normal, g):
     u_R = hu_R / h_R if h_R > 1e-6 else 0
     v_R = hv_R / h_R if h_R > 1e-6 else 0
 
-    # Rotate velocities to be normal to the face
     un_L = u_L * normal[0] + v_L * normal[1]
     un_R = u_R * normal[0] + v_R * normal[1]
 
-    # Wave speed estimates (Roe averages)
-    c_L = np.sqrt(g * h_L)
-    c_R = np.sqrt(g * h_R)
+    c_L = np.sqrt(g * h_L) if h_L > 0 else 0
+    c_R = np.sqrt(g * h_R) if h_R > 0 else 0
 
     S_L = min(un_L - c_L, un_R - c_R)
     S_R = max(un_L + c_L, un_R + c_R)
 
-    # Flux vectors in the normal direction
     F_L = np.array(
         [
             h_L * un_L,
@@ -48,202 +58,255 @@ def hllc_flux(U_L, U_R, normal, g):
 
     if S_L >= 0:
         return F_L
-    elif S_R <= 0:
+    if S_R <= 0:
         return F_R
+
+    # Avoid division by zero
+    if (h_R * (un_R - S_R) - h_L * (un_L - S_L)) == 0:
+        return 0.5 * (F_L + F_R)
+
+    S_star = (
+        S_R * h_R * (un_R - S_R)
+        - S_L * h_L * (un_L - S_L)
+        + 0.5 * g * (h_L**2 - h_R**2)
+    ) / (h_R * (un_R - S_R) - h_L * (un_L - S_L))
+
+    # Avoid division by zero
+    if (S_L - S_star) == 0 or (S_R - S_star) == 0:
+        return 0.5 * (F_L + F_R)
+
+    U_star_L = (S_L * U_L - F_L) / (S_L - S_star)
+    U_star_R = (S_R * U_R - F_R) / (S_R - S_star)
+
+    if S_star >= 0:
+        return F_L + S_L * (U_star_L - U_L)
     else:
-        S_star = (
-            S_R * h_R * (un_R - S_R)
-            - S_L * h_L * (un_L - S_L)
-            + 0.5 * g * (h_L**2 - h_R**2)
-        ) / (h_R * (un_R - S_R) - h_L * (un_L - S_L))
-
-        U_star_L = (S_L * U_L - F_L) / (S_L - S_star)
-        U_star_R = (S_R * U_R - F_R) / (S_R - S_star)
-
-        if S_star >= 0:
-            return F_L + S_L * (U_star_L - U_L)
-        else:
-            return F_R + S_R * (U_star_R - U_R)
+        return F_R + S_R * (U_star_R - U_R)
 
 
-def compute_gradients(
-    U, all_neighbors, cell_centroids, elem_conn, node_coord, cell_areas
-):
-    """Computes the gradients for all cells using the Green-Gauss theorem."""
-    nelem = len(elem_conn)
-    gradients = np.zeros((nelem, 3, 2))  # (nelem, nvars, 2 for x and y)
-    for i in range(nelem):
-        grad_sum = np.zeros((3, 2))
-        for j in all_neighbors[i]:
-            normal, length = get_face_normal_and_length(i, j, elem_conn, node_coord)
-            if length is not None and length > 0:
-                # Average value at the face
-                U_face = 0.5 * (U[i] + U[j])
-                grad_sum[:, 0] += U_face * normal[0] * length
-                grad_sum[:, 1] += U_face * normal[1] * length
-        if cell_areas[i] > 1e-9:
-            gradients[i] = grad_sum / cell_areas[i]
+def calculate_adaptive_dt(mesh: Mesh, U, g, cfl_number):
+    """
+    Calculates the adaptive time step based on the CFL condition.
+    """
+    max_wave_speed = 0.0
+    for i in range(mesh.nelem):
+        h = U[i, 0]
+        hu = U[i, 1]
+        hv = U[i, 2]
+        u = hu / h if h > 1e-6 else 0
+        v = hv / h if h > 1e-6 else 0
+        c = np.sqrt(g * h) if h > 0 else 0
+        wave_speed = np.sqrt(u**2 + v**2) + c
+        if wave_speed > max_wave_speed:
+            max_wave_speed = wave_speed
+
+    # Characteristic length (e.g., sqrt of cell area for 2D)
+    char_length = np.sqrt(np.min(mesh.cell_volumes))
+
+    if max_wave_speed > 1e-9:
+        return cfl_number * char_length / max_wave_speed
+    else:
+        return 1e-3  # Default small dt if wave speed is zero
+
+
+def compute_gradients_gaussian(mesh: Mesh, U, over_relaxation=1.2):
+    """
+    Computes gradients using the Gaussian method with over-relaxed non-orthogonal correction.
+    """
+    gradients = np.zeros((mesh.nelem, U.shape[1], 2))  # For 2D gradients (x, y)
+
+    for i in range(mesh.nelem):
+        grad_sum = np.zeros((U.shape[1], 2))
+        for j, neighbor_idx in enumerate(mesh.cell_neighbors[i]):
+            face_normal = mesh.face_normals[i, j, :2]
+            face_area = mesh.face_areas[i, j]
+
+            if neighbor_idx != -1:
+                U_face = 0.5 * (U[i] + U[neighbor_idx])
+                # Non-orthogonal correction for unstructured meshes
+                d = mesh.cell_centroids[neighbor_idx] - mesh.cell_centroids[i]
+                if np.linalg.norm(d) > 1e-9:
+                    e = d / np.linalg.norm(d)
+                    k = face_normal / np.linalg.norm(face_normal)
+                    k = np.append(k, 0)
+                    # Check for zero dot product before division
+                    if np.dot(d, k) != 0:
+                        non_orth_correction = (
+                            (U[neighbor_idx] - U[i])
+                            * (e - k * np.dot(e, k))
+                            / np.dot(d, k)
+                        )
+                        U_face += over_relaxation * non_orth_correction
+            else:
+                U_face = U[i]  # Boundary face
+
+            grad_sum[:, 0] += U_face * face_normal[0] * face_area
+            grad_sum[:, 1] += U_face * face_normal[1] * face_area
+
+        if mesh.cell_volumes[i] > 1e-9:
+            gradients[i] = grad_sum / mesh.cell_volumes[i]
+
     return gradients
 
 
-# MUSCL reconstruction
-def muscl_reconstruction(U, gradients, cell_centroids, i, j, elem_conn, node_coord):
+def compute_limiters(mesh: Mesh, U, gradients, limiter_type="barth_jespersen"):
     """
-    Reconstructs the values at the face between cell i and j.
+    Computes the slope limiter for each cell to prevent oscillations.
     """
-    # Find face midpoint
-    elem1_nodes = set(elem_conn[i])
-    elem2_nodes = set(elem_conn[j])
-    common_nodes_tags = list(elem1_nodes.intersection(elem2_nodes))
-    if len(common_nodes_tags) != 2:
-        return U[i], U[j]  # Should not happen
+    limiter_func = LIMITERS.get(limiter_type, barth_jespersen_limiter)
+    limiters = np.ones((mesh.nelem, U.shape[1]))
 
-    p1 = node_coord[common_nodes_tags[0] - 1][:2]
-    p2 = node_coord[common_nodes_tags[1] - 1][:2]
-    face_midpoint = (p1 + p2) / 2.0
+    for i in range(mesh.nelem):
+        U_i = U[i]
+        grad_i = gradients[i]
 
-    # Vectors from centroids to face midpoint
-    r_if = face_midpoint - cell_centroids[i]
-    r_jf = face_midpoint - cell_centroids[j]
+        U_max = U_i.copy()
+        U_min = U_i.copy()
+        for neighbor_idx in mesh.cell_neighbors[i]:
+            if neighbor_idx != -1:
+                U_neighbor = U[neighbor_idx]
+                U_max = np.maximum(U_max, U_neighbor)
+                U_min = np.minimum(U_min, U_neighbor)
 
-    # Gradients for cell i and j
-    grad_i = gradients[i]
-    grad_j = gradients[j]
+        for j, face_nodes in enumerate(mesh.elem_faces[i]):
+            node_coords = [
+                mesh.node_coords[np.where(mesh.node_tags == tag)[0][0]]
+                for tag in face_nodes
+            ]
+            face_midpoint = np.mean(node_coords, axis=0)
+            r_if = face_midpoint - mesh.cell_centroids[i]
 
-    # Extrapolate to the face midpoint
-    delta_U_i = np.array([np.dot(grad_i[k], r_if) for k in range(3)])
-    delta_U_j = np.array([np.dot(grad_j[k], r_jf) for k in range(3)])
+            U_face_extrap = U_i + np.array(
+                [np.dot(grad_i[k], r_if[:2]) for k in range(U.shape[1])]
+            )
 
-    # Simple limiter to ensure positivity of h
-    alpha_i = 1.0
-    if U[i][0] + delta_U_i[0] < 1e-6:
-        alpha_i = -U[i][0] / (delta_U_i[0] + 1e-9)
+            for k in range(U.shape[1]):
+                diff = U_face_extrap[k] - U_i[k]
+                if abs(diff) > 1e-9:
+                    if diff > 0:
+                        r = (U_max[k] - U_i[k]) / diff
+                    else:
+                        r = (U_min[k] - U_i[k]) / diff
+                    limiters[i, k] = min(limiters[i, k], limiter_func(r))
 
-    alpha_j = 1.0
-    if U[j][0] + delta_U_j[0] < 1e-6:
-        alpha_j = -U[j][0] / (delta_U_j[0] + 1e-9)
+    return limiters
 
-    limiter = min(1.0, alpha_i, alpha_j)
 
-    U_L = U[i] + limiter * delta_U_i
-    U_R = U[j] + limiter * delta_U_j
+def muscl_reconstruction(
+    U_i,
+    U_j,
+    grad_i,
+    grad_j,
+    limiter_i,
+    limiter_j,
+    centroid_i,
+    centroid_j,
+    face_midpoint,
+):
+    """
+    Reconstructs the values at the face midpoint using MUSCL with a slope limiter.
+    """
+    r_if = face_midpoint - centroid_i
+    r_jf = face_midpoint - centroid_j
+
+    delta_U_i = np.array([np.dot(grad_i[k], r_if[:2]) for k in range(U_i.shape[0])])
+    delta_U_j = np.array([np.dot(grad_j[k], r_jf[:2]) for k in range(U_j.shape[0])])
+
+    U_L = U_i + limiter_i * delta_U_i
+    U_R = U_j + limiter_j * delta_U_j
 
     return U_L, U_R
 
 
-# Main solver loop
-def solve(
-    U, elem_conn, node_coord, all_neighbors, cell_areas, cell_centroids, g, dt, t_end
+def apply_boundary_condition(U_inside, normal, bc_type):
+    """Applies a boundary condition and returns the ghost cell value."""
+    if bc_type == "wall":
+        h, hu, hv = U_inside
+        u = hu / h if h > 1e-6 else 0
+        v = hv / h if h > 1e-6 else 0
+        un = u * normal[0] + v * normal[1]
+        ut = u * -normal[1] + v * normal[0]
+        un_ghost = -un
+        ut_ghost = ut
+        u_ghost = un_ghost * normal[0] - ut_ghost * normal[1]
+        v_ghost = un_ghost * normal[1] + ut_ghost * normal[0]
+        return np.array([h, h * u_ghost, h * v_ghost])
+    else:  # Default to outflow
+        return U_inside
+
+
+def solve_shallow_water(
+    mesh: Mesh,
+    U,
+    boundary_conditions,
+    g=9.81,
+    t_end=2.0,
+    over_relaxation=1.2,
+    limiter="barth_jespersen",
+    use_adaptive_dt=True,
+    cfl=0.5,
+    dt_initial=0.01,
 ):
+    """
+    Solves the 2D Shallow Water Equations using a Finite Volume Method.
+    """
     t = 0.0
-    history = []
-    nelem = len(elem_conn)
+    history = [U.copy()]
+    dt_history = []
+    dt = dt_initial
+
     while t < t_end:
+        if use_adaptive_dt:
+            dt = calculate_adaptive_dt(mesh, U, g, cfl)
+
+        # Ensure the last time step does not overshoot t_end
+        if t + dt > t_end:
+            dt = t_end - t
+
+        gradients = compute_gradients_gaussian(mesh, U, over_relaxation)
+        limiters = compute_limiters(mesh, U, gradients, limiter_type=limiter)
         U_new = U.copy()
-        gradients = compute_gradients(
-            U, all_neighbors, cell_centroids, elem_conn, node_coord, cell_areas
-        )
-        for i in range(nelem):
-            neighbors = all_neighbors[i]
-            for j in neighbors:
-                normal, length = get_face_normal_and_length(i, j, elem_conn, node_coord)
-                if length is not None and length > 0:
+
+        for i in range(mesh.nelem):
+            for j, neighbor_idx in enumerate(mesh.cell_neighbors[i]):
+                face_normal = mesh.face_normals[i, j, :2]
+                face_area = mesh.face_areas[i, j]
+
+                if neighbor_idx != -1:
+                    face_nodes_tags = mesh.elem_faces[i][j]
+                    node_coords = [
+                        mesh.node_coords[np.where(mesh.node_tags == tag)[0][0]]
+                        for tag in face_nodes_tags
+                    ]
+                    face_midpoint = np.mean(node_coords, axis=0)
+
                     U_L, U_R = muscl_reconstruction(
-                        U,
-                        gradients,
-                        cell_centroids,
-                        i,
-                        j,
-                        elem_conn,
-                        node_coord,
+                        U[i],
+                        U[neighbor_idx],
+                        gradients[i],
+                        gradients[neighbor_idx],
+                        limiters[i],
+                        limiters[neighbor_idx],
+                        mesh.cell_centroids[i],
+                        mesh.cell_centroids[neighbor_idx],
+                        face_midpoint,
                     )
-
-                    flux = hllc_flux(U_L, U_R, normal, g)
-
-                    U_new[i] -= (dt / cell_areas[i]) * flux * length
-            # Apply boundary conditions (example: reflective boundaries)
-            # Note: This is a placeholder and needs proper implementation
-            boundary_info = get_boundary_faces(i, elem_conn)
-
-            inlet_values = (1.0, 1.0, 0.2)
-
-            for edge, boundary_tag in boundary_info:
-                # Need to find a neighbor index for boundary faces.  Using a dummy value for now.
-                #  The correct approach depends on how your mesh is structured.
-                #  In many cases, you might have a "ghost cell" or a special index to represent boundaries.
-                neighbor_idx = (
-                    -1
-                )  #  Placeholder: Replace with your boundary representation
-                normal, length = get_face_normal_and_length(
-                    i, neighbor_idx, elem_conn, node_coord, edge
-                )
-                # normal, length = get_face_normal_and_length(
-                #     i, boundary_idx, elem_conn, node_coord
-                # )
-
-                bc_type = boundary_tag  # Use the tag directly
-                if bc_type == "inlet":
-                    U_ghost = apply_boundary_condition(
-                        U[i], normal, bc_type, inlet_values=inlet_values
-                    )
+                    flux = hllc_flux(U_L, U_R, face_normal, g)
                 else:
-                    U_ghost = apply_boundary_condition(U[i], normal, bc_type)
-                if length is not None and length > 0:
-                    U_ghost = apply_boundary_condition(U[i], normal, "reflective")
-                    flux = hllc_flux(U[i], U_ghost, normal, g)
+                    face_tuple = mesh.elem_faces[i][j]
+                    bc_name = mesh.boundary_faces.get(face_tuple, {}).get(
+                        "name", "wall"
+                    )
+                    bc_type = boundary_conditions.get(bc_name, "wall")
+                    U_ghost = apply_boundary_condition(U[i], face_normal, bc_type)
+                    flux = hllc_flux(U[i], U_ghost, face_normal, g)
 
-        U[:] = U_new
+                U_new[i] -= (dt / mesh.cell_volumes[i]) * flux * face_area
+
+        U = U_new
         t += dt
-        if int(t / dt) % 10 == 0:  # Print progress
-            print(f"t = {t:.2f}")
-            history.append(U.copy())
-    return history
+        history.append(U.copy())
+        dt_history.append(dt)
+        print(f"Time: {t:.4f}s / {t_end:.4f}s, dt = {dt:.6f}s")
 
-
-def get_boundary_faces(elem_idx, elem_conn):
-    """
-    Identifies boundary faces for a given element.
-
-    Args:
-        elem_idx (int): Index of the element.
-        elem_conn (np.ndarray): Element connectivity array.
-
-    Returns:
-        list: List of node indices forming boundary faces.  Returns empty list if no boundary face found.
-    """
-    elem_nodes = elem_conn[elem_idx]
-    boundary_info = []
-    for i in range(4):
-        node1 = elem_nodes[i]
-        node2 = elem_nodes[(i + 1) % 4]
-        edge = tuple(sorted((node1, node2)))
-        if edge in boundary_edges:
-            # Assuming boundary_edges dictionary has edge: tag mapping
-            boundary_info.append((edge, boundary_edges[edge]))
-    return boundary_info
-
-
-def apply_boundary_condition(U_inside, normal, bc_type, **kwargs):
-    """
-    Applies a boundary condition and returns the ghost cell value.
-    """
-    if bc_type == "inlet":
-        if "inlet_values" in kwargs:
-            h_in, u_in, v_in = kwargs["inlet_values"]
-            U_ghost = np.array([h_in, h_in * u_in, h_in * v_in])
-        else:
-            U_ghost = U_inside  # Default to interior value if no inlet values provided
-    elif bc_type == "outlet":  # Extrapolate
-        U_ghost = U_inside
-    elif bc_type == "wall":  # Reflective
-        U_ghost = U_inside  # Assuming no-penetration for simplicity
-    else:  # Default or unknown BC
-        U_ghost = U_inside
-
-    return U_ghost
-
-
-def initialize_boundary_edges(elem_conn, boundary_nodes):
-    # Create a dictionary mapping boundary edges (tuples of sorted node tags) to boundary tags.
-    # Placeholder:  This needs to be filled using mesh data.
-    return {(1, 2): 1, (3, 4): 2}  # Example: Replace with actual boundary data.
+    return history, dt_history

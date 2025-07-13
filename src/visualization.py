@@ -1,52 +1,66 @@
 import matplotlib.pyplot as plt
-from matplotlib.patches import Polygon
-from matplotlib.collections import PatchCollection
+import matplotlib.tri as tri
 import matplotlib.animation as animation
 import numpy as np
-from src.mesh import compute_cell_centroids, get_face_normal_and_length
+from src.mesh import Mesh
+from matplotlib.patches import Polygon
 
 
-def visualize_mesh(elem_conn, node_coord, all_neighbors, cell_areas):
+def plot_mesh(mesh: Mesh):
     """Visualizes the mesh, labels, normals, and face lengths."""
     fig, ax = plt.subplots(figsize=(12, 12))
-    nelem = len(elem_conn)
 
     # Plot elements
-    for i, elem_nodes in enumerate(elem_conn):
-        nodes = node_coord[np.array(elem_nodes) - 1]
+    for i, elem_nodes_tags in enumerate(mesh.elem_conn):
+        node_indices = [
+            np.where(mesh.node_tags == tag)[0][0] for tag in elem_nodes_tags
+        ]
+        nodes = mesh.node_coords[node_indices]
         polygon = Polygon(nodes[:, :2], edgecolor="b", facecolor="none", lw=0.5)
         ax.add_patch(polygon)
         # Plot element labels (centroids)
-        centroid = np.mean(nodes, axis=0)
-        ax.text(centroid[0], centroid[1], str(i), color="blue", fontsize=8, ha="center")
         ax.text(
-            centroid[0],
-            centroid[1] - 2,
-            f"Area: {cell_areas[i]:.2f}",
+            mesh.cell_centroids[i, 0],
+            mesh.cell_centroids[i, 1],
+            str(i),
+            color="blue",
+            fontsize=8,
+            ha="center",
+        )
+        ax.text(
+            mesh.cell_centroids[i, 0],
+            mesh.cell_centroids[i, 1] - 1.2,
+            f"A: {mesh.cell_volumes[i]:.2f}",
             color="black",
             fontsize=6,
             ha="center",
         )
 
     # Plot node labels
-    for i, coord in enumerate(node_coord):
-        ax.text(coord[0], coord[1], str(i + 1), color="red", fontsize=6, ha="center")
+    for i, coord in enumerate(mesh.node_coords):
+        ax.text(
+            coord[0],
+            coord[1],
+            str(mesh.node_tags[i]),
+            color="red",
+            fontsize=6,
+            ha="center",
+        )
 
     # Plot face normals for each element
-    for i in range(nelem):
-        for j in all_neighbors[i]:
-            normal, length = get_face_normal_and_length(i, j, elem_conn, node_coord)
-            if length is not None and length > 0:
-                # Find face midpoint
-                elem1_nodes = set(elem_conn[i])
-                elem2_nodes = set(elem_conn[j])
-                common_nodes_tags = list(elem1_nodes.intersection(elem2_nodes))
-                p1 = node_coord[common_nodes_tags[0] - 1]
-                p2 = node_coord[common_nodes_tags[1] - 1]
-                midpoint = (p1 + p2) / 2.0
+    for i in range(mesh.nelem):
+        for j, neighbor_idx in enumerate(mesh.cell_neighbors[i]):
+            if neighbor_idx != -1:  # Only plot internal faces
+                face_nodes_tags = mesh.elem_faces[i][j]
+                node_indices = [
+                    np.where(mesh.node_tags == tag)[0][0] for tag in face_nodes_tags
+                ]
+                nodes = mesh.node_coords[node_indices]
+                midpoint = np.mean(nodes, axis=0)
+                normal = mesh.face_normals[i, j]
 
                 # Scale for visibility
-                normal_scaled = normal * 2
+                normal_scaled = normal * 1.2
 
                 # Plot normal vector
                 ax.quiver(
@@ -66,84 +80,97 @@ def visualize_mesh(elem_conn, node_coord, all_neighbors, cell_areas):
     plt.xlabel("X-coordinate")
     plt.ylabel("Y-coordinate")
     plt.grid(False)
+    plt.show(block=False)
+
+
+def plot_simulation_step(mesh: Mesh, U, title=""):
+    """
+    Plots the water height on the mesh for a single time step.
+    """
+    x = mesh.node_coords[:, 0]
+    y = mesh.node_coords[:, 1]
+    h = U[:, 0]
+
+    triangles = []
+    facecolors = []
+    for i, conn in enumerate(mesh.elem_conn):
+        node_indices = [np.where(mesh.node_tags == tag)[0][0] for tag in conn]
+        if len(node_indices) == 4:
+            triangles.append([node_indices[0], node_indices[1], node_indices[2]])
+            triangles.append([node_indices[0], node_indices[2], node_indices[3]])
+            facecolors.extend([h[i], h[i]])
+        else:
+            triangles.append(node_indices)
+            facecolors.append(h[i])
+
+    plt.figure(figsize=(12, 5))
+    plt.tripcolor(
+        x, y, triangles=triangles, facecolors=facecolors, shading="flat", cmap="viridis"
+    )
+    plt.colorbar(label="Water Height (h)")
+    plt.title(title)
+    plt.xlabel("X-coordinate")
+    plt.ylabel("Y-coordinate")
+    plt.gca().set_aspect("equal", adjustable="box")
     plt.show()
 
 
-def visualize_results(U, elem_conn, node_coord, t):
-    """Visualizes the final simulation results."""
-    fig, ax = plt.subplots(figsize=(12, 10))
+def create_animation(mesh: Mesh, history, dt_history, filename="shallow_water.gif"):
+    """
+    Creates and saves an animation of the simulation history.
+    """
+    fig, ax = plt.subplots(figsize=(12, 12))
+    x = mesh.node_coords[:, 0]
+    y = mesh.node_coords[:, 1]
 
-    h = U[:, 0]
-    hu = U[:, 1]
-    hv = U[:, 2]
-    u = np.divide(hu, h, out=np.zeros_like(hu), where=h > 1e-6)
-    v = np.divide(hv, h, out=np.zeros_like(hv), where=h > 1e-6)
+    triangles = []
+    for conn in mesh.elem_conn:
+        node_indices = [np.where(mesh.node_tags == tag)[0][0] for tag in conn]
+        if len(node_indices) == 4:
+            triangles.append([node_indices[0], node_indices[1], node_indices[2]])
+            triangles.append([node_indices[0], node_indices[2], node_indices[3]])
+        else:
+            triangles.append(node_indices)
 
-    # Create a collection of polygons for the mesh
-    patches = []
-    for elem_nodes in elem_conn:
-        nodes = node_coord[np.array(elem_nodes) - 1]
-        polygon = Polygon(nodes[:, :2], closed=True)
-        patches.append(polygon)
+    h_initial = history[0][:, 0]
+    facecolors_initial = []
+    for i, h_val in enumerate(h_initial):
+        if len(mesh.elem_conn[i]) == 4:
+            facecolors_initial.extend([h_val, h_val])
+        else:
+            facecolors_initial.append(h_val)
 
-    p = PatchCollection(patches, alpha=0.9)
-    p.set_array(h)
-    ax.add_collection(p)
-    p.set_clim(0, 1)
-    fig.colorbar(p, ax=ax, label="Water Height (h)")
-
-    # Overlay velocity vectors
-    centroids = compute_cell_centroids(elem_conn, node_coord)
-    ax.quiver(
-        centroids[:, 0],
-        centroids[:, 1],
-        u,
-        v,
-        angles="xy",
-        scale_units="xy",
-        color="green",
-        scale=0.5,
-        width=0.002,  # Make arrows thinner
+    tpc = ax.tripcolor(
+        x,
+        y,
+        triangles=triangles,
+        facecolors=facecolors_initial,
+        shading="flat",
+        cmap="viridis",
     )
-
-    ax.set_aspect("equal", "box")
-    ax.set_title(f"Final Simulation Results at t = {t:.4f}")
-    plt.xlabel("X-coordinate")
-    plt.ylabel("Y-coordinate")
-    plt.grid(False)
-    plt.show(block=True)
-
-
-def create_animation(history, elem_conn, node_coord, dt, interval=100):
-    """Creates an animation of the simulation history."""
-    fig, ax = plt.subplots(figsize=(12, 10))
-
-    patches = []
-    for elem_nodes in elem_conn:
-        nodes = node_coord[np.array(elem_nodes) - 1]
-        polygon = Polygon(nodes[:, :2], closed=True)
-        patches.append(polygon)
-    p = PatchCollection(patches, alpha=0.9)
-    ax.add_collection(p)
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.set_title(f"Solution at t = {0:.6f}")
-    ax.grid(True)
+    fig.colorbar(tpc, ax=ax, label="Water Height (h)")
+    time_text = ax.set_title(f"Simulation at t = {0.0:.4f}s")
+    ax.set_xlabel("X-coordinate")
+    ax.set_ylabel("Y-coordinate")
+    ax.set_aspect("equal", adjustable="box")
 
     def update_frame(frame):
         U = history[frame]
         h = U[:, 0]
-        p.set_array(h)
-        ax.set_title(f"Simulation at t = {frame * dt * 10:.4f}")
-        return [p]
+        facecolors = []
+        for i, h_val in enumerate(h):
+            if len(mesh.elem_conn[i]) == 4:
+                facecolors.extend([h_val, h_val])
+            else:
+                facecolors.append(h_val)
+        tpc.set_array(facecolors)
+
+        current_time = sum(dt_history[:frame])
+        time_text.set_text(f"Simulation at t = {current_time:.4f}s")
+        return [tpc, time_text]
 
     anim = animation.FuncAnimation(
-        fig,
-        update_frame,
-        frames=len(history),
-        interval=interval,
-        blit=False,
-        repeat=True,
-        repeat_delay=3000,
+        fig, update_frame, frames=len(history), interval=50, blit=True, repeat=False
     )
-    anim.save("shallow_water.gif", writer="imagemagick")
+
+    plt.show()

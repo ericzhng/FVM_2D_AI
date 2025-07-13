@@ -1,30 +1,24 @@
 import numpy as np
+from src.mesh import Mesh
 
 
-def dam_break_initial_conditions(elem_conn, node_coord):
+def setup_dam_break_scenario(mesh: Mesh):
     """
     Sets up the initial conditions for a dam break scenario.
-
-    Args:
-        elem_conn (np.ndarray): Element connectivity array.
-        node_coord (np.ndarray): Node coordinates array.
-
-    Returns:
-        np.ndarray: An array of conserved variables (h, hu, hv).
     """
-    nelem = len(elem_conn)
-    U = np.zeros((nelem, 3))
-    for i, elem in enumerate(elem_conn):
-        centroid = np.mean(node_coord[elem - 1], axis=0)
-        U[i] = [1.0, 1, 0.2] if centroid[0] < 50 else [0.5, 0.5, 0.5]
-    return U
+    U = np.zeros((mesh.nelem, 3))  # [h, hu, hv]
+    for i in range(mesh.nelem):
+        if mesh.cell_centroids[i][0] < 10.0:
+            U[i, 0] = 2.0  # Water height (h)
+        else:
+            U[i, 0] = 1.0
+        U[i, 1] = 0.0  # Momentum in x (hu)
+        U[i, 2] = 0.0  # Momentum in y (hv)
 
+    boundary_conditions = {
+        "wall": "wall",
+        "outflow": "outflow"
+    }
 
-def initial_conditions(elem_conn, node_coord):
-    """
-    Sets initial condition
-    """
-    nelem = len(elem_conn)
-    U = np.zeros((nelem, 3))
-    U[:] = [1.0, 0.1, 0.1]  # Example uniform initial condition
-    return U
+    return U, boundary_conditions
+
