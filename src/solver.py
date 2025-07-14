@@ -298,6 +298,7 @@ def solve_shallow_water(
                     )
                     flux = hllc_flux(U_L, U_R, face_normal, g)
                 else:
+                    face_tuple = mesh.elem_faces[i][j]
                     bc_name = mesh.boundary_faces.get(face_tuple, {}).get(
                         "name", "wall"
                     )
