@@ -2,7 +2,7 @@ import numpy as np
 from src.mesh import Mesh
 
 
-def setup_case(mesh: Mesh):
+def setup_case_shallow_water(mesh: Mesh):
     """
     Sets up the initial conditions for the simulation.
     """
@@ -20,3 +20,37 @@ def setup_case(mesh: Mesh):
     }
 
     return U, boundary_conditions
+
+def setup_case_euler(mesh: Mesh, gamma=1.4):
+    """
+    Sets up the initial conditions for the 2D Euler simulation.
+    """
+    U = np.zeros((mesh.nelem, 4))  # [rho, rho*u, rho*v, E]
+
+    # Example: Sod's shock tube rotated 45 degrees
+    for i in range(mesh.nelem):
+        x, y, _ = mesh.cell_centroids[i]
+        if x + y < 0:
+            rho = 1.0
+            p = 1.0
+            u = 0.75
+            v = 0.0
+        else:
+            rho = 0.125
+            p = 0.1
+            u = 0.0
+            v = 0.0
+        
+        E = p / (gamma - 1) + 0.5 * rho * (u**2 + v**2)
+        U[i] = np.array([rho, rho * u, rho * v, E])
+
+    # Define boundary conditions for Euler equations
+    boundary_conditions = {
+        "top": {"type": "wall"},
+        "bottom": {"type": "wall"},
+        "left": {"type": "inlet", "value": np.array([1.0, 0.75, 0.0, 2.5])}, # rho, rho*u, rho*v, E
+        "right": {"type": "outlet", "value": np.array([0.125, 0.0, 0.0, 0.25])}
+    }
+
+    return U, boundary_conditions
+

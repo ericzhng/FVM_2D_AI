@@ -21,94 +21,6 @@ LIMITERS = {
     "superbee": superbee_limiter,
 }
 
-
-def hllc_flux(U_L, U_R, normal, g):
-    """Calculates the HLLC flux for the 2D Shallow Water Equations."""
-    h_L, hu_L, hv_L = U_L
-    h_R, hu_R, hv_R = U_R
-
-    u_L = hu_L / h_L if h_L > 1e-6 else 0
-    v_L = hv_L / h_L if h_L > 1e-6 else 0
-    u_R = hu_R / h_R if h_R > 1e-6 else 0
-    v_R = hv_R / h_R if h_R > 1e-6 else 0
-
-    un_L = u_L * normal[0] + v_L * normal[1]
-    un_R = u_R * normal[0] + v_R * normal[1]
-
-    c_L = np.sqrt(g * h_L) if h_L > 0 else 0
-    c_R = np.sqrt(g * h_R) if h_R > 0 else 0
-
-    S_L = min(un_L - c_L, un_R - c_R)
-    S_R = max(un_L + c_L, un_R + c_R)
-
-    F_L = np.array(
-        [
-            h_L * un_L,
-            hu_L * un_L + 0.5 * g * h_L**2 * normal[0],
-            hv_L * un_L + 0.5 * g * h_L**2 * normal[1],
-        ]
-    )
-    F_R = np.array(
-        [
-            h_R * un_R,
-            hu_R * un_R + 0.5 * g * h_R**2 * normal[0],
-            hv_R * un_R + 0.5 * g * h_R**2 * normal[1],
-        ]
-    )
-
-    if S_L >= 0:
-        return F_L
-    if S_R <= 0:
-        return F_R
-
-    # Avoid division by zero
-    if (h_R * (un_R - S_R) - h_L * (un_L - S_L)) == 0:
-        return 0.5 * (F_L + F_R)
-
-    S_star = (
-        S_R * h_R * (un_R - S_R)
-        - S_L * h_L * (un_L - S_L)
-        + 0.5 * g * (h_L**2 - h_R**2)
-    ) / (h_R * (un_R - S_R) - h_L * (un_L - S_L))
-
-    # Avoid division by zero
-    if (S_L - S_star) == 0 or (S_R - S_star) == 0:
-        return 0.5 * (F_L + F_R)
-
-    U_star_L = (S_L * U_L - F_L) / (S_L - S_star)
-    U_star_R = (S_R * U_R - F_R) / (S_R - S_star)
-
-    if S_star >= 0:
-        return F_L + S_L * (U_star_L - U_L)
-    else:
-        return F_R + S_R * (U_star_R - U_R)
-
-
-def calculate_adaptive_dt(mesh: Mesh, U, g, cfl_number):
-    """
-    Calculates the adaptive time step based on the CFL condition.
-    """
-    max_wave_speed = 0.0
-    for i in range(mesh.nelem):
-        h = U[i, 0]
-        hu = U[i, 1]
-        hv = U[i, 2]
-        u = hu / h if h > 1e-6 else 0
-        v = hv / h if h > 1e-6 else 0
-        c = np.sqrt(g * h) if h > 0 else 0
-        wave_speed = np.sqrt(u**2 + v**2) + c
-        if wave_speed > max_wave_speed:
-            max_wave_speed = wave_speed
-
-    # Characteristic length (e.g., sqrt of cell area for 2D)
-    char_length = np.sqrt(np.min(mesh.cell_volumes))
-
-    if max_wave_speed > 1e-9:
-        return cfl_number * char_length / max_wave_speed
-    else:
-        return 1e-3  # Default small dt if wave speed is zero
-
-
 def compute_gradients_gaussian(mesh: Mesh, U, over_relaxation=1.2):
     """
     Computes gradients using the Gaussian method with over-relaxed non-orthogonal correction.
@@ -217,34 +129,11 @@ def muscl_reconstruction(
 
     return U_L, U_R
 
-
-def apply_boundary_condition(U_inside, normal, bc_info):
-    """Applies a boundary condition and returns the ghost cell value."""
-    bc_type = bc_info.get("type", "wall")
-    if bc_type == "wall":
-        h, hu, hv = U_inside
-        u = hu / h if h > 1e-6 else 0
-        v = hv / h if h > 1e-6 else 0
-        un = u * normal[0] + v * normal[1]
-        ut = u * -normal[1] + v * normal[0]
-        un_ghost = -un
-        ut_ghost = ut
-        u_ghost = un_ghost * normal[0] - ut_ghost * normal[1]
-        v_ghost = un_ghost * normal[1] + ut_ghost * normal[0]
-        return np.array([h, h * u_ghost, h * v_ghost])
-    elif bc_type == "inlet":
-        return bc_info.get("value", U_inside)
-    elif bc_type == "outlet":
-        return bc_info.get("value", U_inside)
-    else:  # Default to outflow
-        return U_inside
-
-
-def solve_shallow_water(
+def solve(
     mesh: Mesh,
     U,
     boundary_conditions,
-    g=9.81,
+    equation,
     t_end=2.0,
     over_relaxation=1.2,
     limiter="barth_jespersen",
@@ -253,7 +142,7 @@ def solve_shallow_water(
     dt_initial=0.01,
 ):
     """
-    Solves the 2D Shallow Water Equations using a Finite Volume Method.
+    Solves the given equations using a Finite Volume Method.
     """
     t = 0.0
     history = [U.copy()]
@@ -262,7 +151,7 @@ def solve_shallow_water(
 
     while t < t_end:
         if use_adaptive_dt:
-            dt = calculate_adaptive_dt(mesh, U, g, cfl)
+            dt = equation.calculate_adaptive_dt(mesh, U, cfl)
 
         # Ensure the last time step does not overshoot t_end
         if t + dt > t_end:
@@ -296,15 +185,15 @@ def solve_shallow_water(
                         mesh.cell_centroids[neighbor_idx],
                         face_midpoint,
                     )
-                    flux = hllc_flux(U_L, U_R, face_normal, g)
+                    flux = equation.hllc_flux(U_L, U_R, face_normal)
                 else:
                     face_tuple = mesh.elem_faces[i][j]
                     bc_name = mesh.boundary_faces.get(face_tuple, {}).get(
                         "name", "wall"
                     )
                     bc_info = boundary_conditions.get(bc_name, {"type": "wall"})
-                    U_ghost = apply_boundary_condition(U[i], face_normal, bc_info)
-                    flux = hllc_flux(U[i], U_ghost, face_normal, g)
+                    U_ghost = equation.apply_boundary_condition(U[i], face_normal, bc_info)
+                    flux = equation.hllc_flux(U[i], U_ghost, face_normal)
 
                 U_new[i] -= (dt / mesh.cell_volumes[i]) * flux * face_area
 
@@ -312,6 +201,6 @@ def solve_shallow_water(
         t += dt
         history.append(U.copy())
         dt_history.append(dt)
-        print(f"Time: {t:.1f}s / {t_end:.1f}s, dt = {dt:.1f}s")
+        print(f"Time: {t:.4f}s / {t_end:.4f}s, dt = {dt:.4f}s")
 
     return history, dt_history
