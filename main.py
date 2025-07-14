@@ -1,7 +1,8 @@
 from src.mesh import Mesh
 from src.solver import solve_shallow_water
-from src.case_setup import setup_dam_break_scenario
+from src.case_setup import setup_case
 from src.visualization import plot_simulation_step, create_animation, plot_mesh
+import numpy as np
 
 
 def main():
@@ -17,19 +18,22 @@ def main():
     plot_mesh(mesh)  # Optional: visualize the mesh
 
     # --- 2. Set Up Case ---
-    U_initial, boundary_conditions = setup_dam_break_scenario(mesh)
+    U_initial, boundary_conditions = setup_case(mesh)
 
     # --- 3. Solve ---
+    inlet_conditions = np.array([5.0, 0.0, 0.0])  # [h, hu, hv]
     history, dt_history = solve_shallow_water(
         mesh,
         U_initial,
         boundary_conditions,
-        t_end=1.0,
+        inlet_conditions=inlet_conditions,
+        t_end=100.0,
         g=9.81,
         over_relaxation=1.2,
         limiter="minmod",  # Options: 'barth_jespersen', 'minmod', 'superbee'
         use_adaptive_dt=False,
         cfl=0.5,
+        dt_initial=1,
     )
 
     # --- 4. Visualize ---

@@ -218,7 +218,7 @@ def muscl_reconstruction(
     return U_L, U_R
 
 
-def apply_boundary_condition(U_inside, normal, bc_type):
+def apply_boundary_condition(U_inside, normal, bc_type, inlet_conditions=None):
     """Applies a boundary condition and returns the ghost cell value."""
     if bc_type == "wall":
         h, hu, hv = U_inside
@@ -231,6 +231,10 @@ def apply_boundary_condition(U_inside, normal, bc_type):
         u_ghost = un_ghost * normal[0] - ut_ghost * normal[1]
         v_ghost = un_ghost * normal[1] + ut_ghost * normal[0]
         return np.array([h, h * u_ghost, h * v_ghost])
+    elif bc_type == "inlet":
+        return inlet_conditions
+    elif bc_type == "outlet":
+        return U_inside
     else:  # Default to outflow
         return U_inside
 
@@ -239,6 +243,7 @@ def solve_shallow_water(
     mesh: Mesh,
     U,
     boundary_conditions,
+    inlet_conditions=None,
     g=9.81,
     t_end=2.0,
     over_relaxation=1.2,
@@ -298,7 +303,7 @@ def solve_shallow_water(
                         "name", "wall"
                     )
                     bc_type = boundary_conditions.get(bc_name, "wall")
-                    U_ghost = apply_boundary_condition(U[i], face_normal, bc_type)
+                    U_ghost = apply_boundary_condition(U[i], face_normal, bc_type, inlet_conditions)
                     flux = hllc_flux(U[i], U_ghost, face_normal, g)
 
                 U_new[i] -= (dt / mesh.cell_volumes[i]) * flux * face_area
