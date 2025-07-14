@@ -21,12 +21,10 @@ def main():
     U_initial, boundary_conditions = setup_case(mesh)
 
     # --- 3. Solve ---
-    inlet_conditions = np.array([5.0, 0.0, 0.0])  # [h, hu, hv]
     history, dt_history = solve_shallow_water(
         mesh,
         U_initial,
         boundary_conditions,
-        inlet_conditions=inlet_conditions,
         t_end=100.0,
         g=9.81,
         over_relaxation=1.2,

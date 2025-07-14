@@ -13,10 +13,10 @@ def setup_case(mesh: Mesh):
         U[i, 2] = 10.0  # Momentum in y (hv)
 
     boundary_conditions = {
-        "top": "wall",
-        "bottom": "wall",
-        "left": "inlet",
-        "right": "outlet",
+        "top": {"type": "wall"},
+        "bottom": {"type": "wall"},
+        "left": {"type": "inlet", "value": np.array([5.0, 10.0, 0.0])},  # [h, hu, hv]
+        "right": {"type": "outlet", "value": np.array([5.0, 10.0, 0.0])},
     }
 
     return U, boundary_conditions
