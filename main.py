@@ -15,15 +15,15 @@ def main():
     mesh.read_mesh("data/rectangle_mesh.msh")
     mesh.analyze_mesh()
     mesh.summary()
-    plot_mesh(mesh)  # Optional: visualize the mesh
+    # plot_mesh(mesh)  # Optional: visualize the mesh
 
     # --- 2. Set Up Case ---
-    U_initial, boundary_conditions = setup_case(mesh)
+    U_init, boundary_conditions = setup_case(mesh)
 
     # --- 3. Solve ---
     history, dt_history = solve_shallow_water(
         mesh,
-        U_initial,
+        U_init,
         boundary_conditions,
         t_end=100.0,
         g=9.81,
@@ -35,8 +35,8 @@ def main():
     )
 
     # --- 4. Visualize ---
-    # plot_simulation_step(mesh, history[-1], "Final State")
     create_animation(mesh, history, dt_history)
+    # plot_simulation_step(mesh, history[-1], "Final State")
 
 
 if __name__ == "__main__":

@@ -312,6 +312,6 @@ def solve_shallow_water(
         t += dt
         history.append(U.copy())
         dt_history.append(dt)
-        print(f"Time: {t:.4f}s / {t_end:.4f}s, dt = {dt:.6f}s")
+        print(f"Time: {t:.1f}s / {t_end:.1f}s, dt = {dt:.1f}s")
 
     return history, dt_history

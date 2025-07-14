@@ -15,7 +15,7 @@ def plot_mesh(mesh: Mesh):
         node_indices = [
             np.where(mesh.node_tags == tag)[0][0] for tag in elem_nodes_tags
         ]
-        nodes = mesh.node_coords[node_indices]
+        nodes = mesh.node_coords[np.array(node_indices)]
         polygon = Polygon(nodes[:, :2], edgecolor="b", facecolor="none", lw=0.5)
         ax.add_patch(polygon)
         # Plot element labels (centroids)
@@ -55,7 +55,7 @@ def plot_mesh(mesh: Mesh):
                 node_indices = [
                     np.where(mesh.node_tags == tag)[0][0] for tag in face_nodes_tags
                 ]
-                nodes = mesh.node_coords[node_indices]
+                nodes = mesh.node_coords[np.array(node_indices)]
                 midpoint = np.mean(nodes, axis=0)
                 normal = mesh.face_normals[i, j]
 
@@ -87,8 +87,9 @@ def plot_simulation_step(mesh: Mesh, U, title=""):
     """
     Plots the water height on the mesh for a single time step.
     """
-    x = mesh.node_coords[:, 0]
-    y = mesh.node_coords[:, 1]
+    node_coords = np.array(mesh.node_coords)
+    x = node_coords[:, 0]
+    y = node_coords[:, 1]
     h = U[:, 0]
 
     triangles = []
@@ -120,8 +121,9 @@ def create_animation(mesh: Mesh, history, dt_history, filename="shallow_water.gi
     Creates and saves an animation of the simulation history.
     """
     fig, ax = plt.subplots(figsize=(12, 12))
-    x = mesh.node_coords[:, 0]
-    y = mesh.node_coords[:, 1]
+    node_coords = np.array(mesh.node_coords)
+    x = node_coords[:, 0]
+    y = node_coords[:, 1]
 
     triangles = []
     for conn in mesh.elem_conn:
@@ -166,11 +168,17 @@ def create_animation(mesh: Mesh, history, dt_history, filename="shallow_water.gi
         tpc.set_array(facecolors)
 
         current_time = sum(dt_history[:frame])
-        time_text.set_text(f"Simulation at t = {current_time:.4f}s")
+        ax.set_title(f"Simulation at t = {current_time:.4f}s")
         return [tpc, time_text]
 
     anim = animation.FuncAnimation(
-        fig, update_frame, frames=len(history), interval=50, blit=True, repeat=False
+        fig,
+        update_frame,
+        frames=len(history),
+        interval=100,
+        blit=False,
+        repeat=True,
+        repeat_delay=3000,
     )
 
     plt.show()

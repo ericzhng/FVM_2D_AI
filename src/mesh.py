@@ -12,22 +12,22 @@ class Mesh:
         """
         Initializes the Mesh object with empty attributes.
         """
-        self.mesh_file = None
+        self.mesh_file = np.array([])
         self.dim = 0
-        self.node_tags = None
-        self.node_coords = None
-        self.elem_tags = None
-        self.elem_conn = None
+        self.node_tags = np.array([])
+        self.node_coords = np.array([])
+        self.elem_tags = np.array([])
+        self.elem_conn = np.array([])
         self.nelem = 0
         self.nnode = 0
-        self.cell_volumes = None
-        self.cell_centroids = None
-        self.face_normals = None
-        self.face_tangentials = None
-        self.face_areas = None
+        self.cell_volumes = np.array([])
+        self.cell_centroids = np.array([])
+        self.face_normals = np.array([])
+        self.face_tangentials = np.array([])
+        self.face_areas = np.array([])
         self.boundary_faces = {}
-        self.cell_neighbors = None
-        self.elem_faces = None
+        self.cell_neighbors = np.array([])
+        self.elem_faces = np.array([])
 
     def read_mesh(self, mesh_file):
         """
@@ -118,17 +118,18 @@ class Mesh:
             node_indices = [
                 np.where(self.node_tags == tag)[0][0] for tag in elem_nodes_tags
             ]
-            nodes = self.node_coords[node_indices]
+            nodes = self.node_coords[np.array(node_indices)]
             self.cell_centroids[i] = np.mean(nodes, axis=0)
 
     def _compute_cell_volumes(self):
-        """Computes the volume/area of each element."""
+        """Computes the volume/area and centroid of each element."""
         self.cell_volumes = np.zeros(self.nelem)
+        self.cell_centroids = np.zeros((self.nelem, 3))
         for i, elem_nodes_tags in enumerate(self.elem_conn):
             node_indices = [
                 np.where(self.node_tags == tag)[0][0] for tag in elem_nodes_tags
             ]
-            nodes = self.node_coords[node_indices]
+            nodes = self.node_coords[np.array(node_indices)]
 
             if self.dim == 1:
                 self.cell_volumes[i] = np.linalg.norm(nodes[1] - nodes[0])
@@ -142,13 +143,11 @@ class Mesh:
                 # Volume calculation using divergence theorem, based on face properties
                 volume = 0.0
                 for j, face_nodes in enumerate(self.elem_faces[i]):
+                    node_indices_face = [
+                        np.where(self.node_tags == tag)[0][0] for tag in face_nodes
+                    ]
                     face_midpoint = np.mean(
-                        self.node_coords[
-                            [
-                                np.where(self.node_tags == tag)[0][0]
-                                for tag in face_nodes
-                            ]
-                        ],
+                        self.node_coords[np.array(node_indices_face)],
                         axis=0,
                     )
                     face_normal = self.face_normals[i, j]
@@ -224,7 +223,7 @@ class Mesh:
                 node_indices = [
                     np.where(self.node_tags == tag)[0][0] for tag in face_nodes
                 ]
-                nodes = self.node_coords[node_indices]
+                nodes = self.node_coords[np.array(node_indices)]
 
                 if self.dim == 2:
                     p1, p2 = nodes[0], nodes[1]
@@ -280,13 +279,15 @@ class Mesh:
             node_indices = [
                 np.where(self.node_tags == tag)[0][0] for tag in elem_nodes_tags
             ]
-            nodes = self.node_coords[node_indices]
+            nodes = self.node_coords[np.array(node_indices)]
 
             num_nodes = len(nodes)
-            edge_lengths = [
-                np.linalg.norm(nodes[j] - nodes[(j + 1) % num_nodes])
-                for j in range(num_nodes)
-            ]
+            edge_lengths = np.array(
+                [
+                    np.linalg.norm(nodes[j] - nodes[(j + 1) % num_nodes])
+                    for j in range(num_nodes)
+                ]
+            )
 
             if self.dim == 2:
                 if min(edge_lengths) > 1e-9:
@@ -300,7 +301,7 @@ class Mesh:
                     face_node_indices = [
                         np.where(self.node_tags == tag)[0][0] for tag in face
                     ]
-                    face_nodes_coords = self.node_coords[face_node_indices]
+                    face_nodes_coords = self.node_coords[np.array(face_node_indices)]
                     for k in range(len(face_nodes_coords)):
                         p1 = face_nodes_coords[k]
                         p2 = face_nodes_coords[(k + 1) % len(face_nodes_coords)]
@@ -364,7 +365,7 @@ class Mesh:
 
 if __name__ == "__main__":
     try:
-        mesh_file = "d:/2025-06-19/FVM_2D_AI/data/rectangle_mesh.msh"
+        mesh_file = "./data/rectangle_mesh.msh"
 
         # New workflow
         mesh = Mesh()
