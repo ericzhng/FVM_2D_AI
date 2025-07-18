@@ -1,8 +1,7 @@
 import gmsh
 import sys
 
-
-def create_rectangle_and_mesh(length, height, nx, ny, filename="data/euler_mesh.msh"):
+def create_and_mesh_rectangle(length, height, nx, ny, filename="data/rectangle_mesh.msh"):
     """
     Creates a rectangle and meshes it with a structured grid of quadrilateral elements.
 
@@ -35,28 +34,26 @@ def create_rectangle_and_mesh(length, height, nx, ny, filename="data/euler_mesh.
     cl = gmsh.model.geo.addCurveLoop([l1, l2, l3, l4])
     s = gmsh.model.geo.addPlaneSurface([cl])
 
-    # Synchronize the geometry
-    gmsh.model.geo.synchronize()
-
     # --- Use the Transfinite algorithm to create a structured mesh ---
 
-    # 1. Specify the number of nodes on each boundary curve.
+    # 1. Specify the number of mesh points on the boundary curves.
     # The number of nodes is the number of elements + 1.
     gmsh.model.geo.mesh.setTransfiniteCurve(l1, nx + 1)
     gmsh.model.geo.mesh.setTransfiniteCurve(l3, nx + 1)
     gmsh.model.geo.mesh.setTransfiniteCurve(l2, ny + 1)
     gmsh.model.geo.mesh.setTransfiniteCurve(l4, ny + 1)
 
-    # 2. Specify the surface for the transfinite mesh and its corners.
-    # The corners must be listed in a specific order.
-    gmsh.model.geo.mesh.setTransfiniteSurface(s, "Left", [p1, p2, p3, p4])
+    # 2. Specify the surface for the transfinite mesh.
+    gmsh.model.geo.mesh.setTransfiniteSurface(s)
 
-    # 3. Instruct Gmsh to recombine triangles into quadrilaterals.
-    # This is essential for creating a quad mesh.
+    # 3. IMPORTANT: This tells Gmsh to recombine the triangles created by the
+    # transfinite algorithm into quadrilaterals.
     gmsh.model.geo.mesh.setRecombine(2, s)
 
+    # Synchronize the geometry with the mesh model
+    gmsh.model.geo.synchronize()
+
     # Create physical groups for boundaries and the main surface.
-    # This is important for applying boundary conditions in the solver.
     gmsh.model.addPhysicalGroup(1, [l4], name="left")
     gmsh.model.addPhysicalGroup(1, [l2], name="right")
     gmsh.model.addPhysicalGroup(1, [l1], name="bottom")
@@ -68,7 +65,7 @@ def create_rectangle_and_mesh(length, height, nx, ny, filename="data/euler_mesh.
 
     # Save the mesh
     gmsh.write(filename)
-    print(f"Successfully created structured mesh.")
+    print(f"Successfully created structured mesh with {nx}x{ny} elements.")
     print(f"Mesh saved to: {filename}")
 
     # Finalize Gmsh
@@ -86,5 +83,7 @@ if __name__ == "__main__":
         f"Creating a structured mesh of size {rect_length}x{rect_height} "
         f"with {num_elements_x}x{num_elements_y} elements."
     )
-    create_rectangle_and_mesh(rect_length, rect_height, num_elements_x, num_elements_y)
+    create_and_mesh_rectangle(
+        rect_length, rect_height, num_elements_x, num_elements_y
+    )
     print("\nScript finished.")
