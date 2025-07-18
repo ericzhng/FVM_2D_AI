@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 
+
 class BaseEquation(ABC):
     def hllc_flux(self, U_L, U_R, normal):
         q_L = self._cons_to_prim(U_L)
@@ -27,15 +28,15 @@ class BaseEquation(ABC):
             return F_R + S_R * (U_star_R - U_R)
 
     @abstractmethod
+    def _calculate_flux(self, U, q, normal):
+        pass
+
+    @abstractmethod
     def _cons_to_prim(self, U):
         pass
 
     @abstractmethod
     def _calculate_wave_speeds(self, q_L, q_R, normal):
-        pass
-
-    @abstractmethod
-    def _calculate_flux(self, U, q, normal):
         pass
 
     @abstractmethod
