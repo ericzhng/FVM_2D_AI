@@ -85,6 +85,7 @@ class Mesh:
         self._compute_mesh_properties()
         self._compute_cell_volumes()
 
+
     def _get_boundary_info(self):
         """
         Extracts boundary faces and their corresponding physical group tags.
@@ -122,9 +123,8 @@ class Mesh:
             self.cell_centroids[i] = np.mean(nodes, axis=0)
 
     def _compute_cell_volumes(self):
-        """Computes the volume/area and centroid of each element."""
+        """Computes the volume/area of each element."""
         self.cell_volumes = np.zeros(self.nelem)
-        self.cell_centroids = np.zeros((self.nelem, 3))
         for i, elem_nodes_tags in enumerate(self.elem_conn):
             node_indices = [
                 np.where(self.node_tags == tag)[0][0] for tag in elem_nodes_tags

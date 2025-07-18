@@ -21,6 +21,7 @@ LIMITERS = {
     "superbee": superbee_limiter,
 }
 
+
 def compute_gradients_gaussian(mesh: Mesh, U, over_relaxation=1.2):
     """
     Computes gradients using the Gaussian method with over-relaxed non-orthogonal correction.
@@ -50,7 +51,8 @@ def compute_gradients_gaussian(mesh: Mesh, U, over_relaxation=1.2):
                         )
                         U_face += over_relaxation * non_orth_correction
             else:
-                U_face = U[i]  # Boundary face
+                # A simple approach: use the interior value at the boundary face
+                U_face = U[i]
 
             grad_sum[:, 0] += U_face * face_normal[0] * face_area
             grad_sum[:, 1] += U_face * face_normal[1] * face_area
@@ -129,6 +131,7 @@ def muscl_reconstruction(
 
     return U_L, U_R
 
+
 def solve(
     mesh: Mesh,
     U,
@@ -192,7 +195,9 @@ def solve(
                         "name", "wall"
                     )
                     bc_info = boundary_conditions.get(bc_name, {"type": "wall"})
-                    U_ghost = equation.apply_boundary_condition(U[i], face_normal, bc_info)
+                    U_ghost = equation.apply_boundary_condition(
+                        U[i], face_normal, bc_info
+                    )
                     flux = equation.hllc_flux(U[i], U_ghost, face_normal)
 
                 U_new[i] -= (dt / mesh.cell_volumes[i]) * flux * face_area

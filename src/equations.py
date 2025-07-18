@@ -45,8 +45,11 @@ def hllc_flux_euler(U_L, U_R, normal, gamma):
 
     S_star = (p_R - p_L + rho_L * un_L * (S_L - un_L) - rho_R * un_R * (S_R - un_R)) / (rho_L * (S_L - un_L) - rho_R * (S_R - un_R))
 
-    U_star_L = rho_L * (S_L - un_L) / (S_L - S_star) * np.array([1, S_star, v_L, E_L/rho_L + (S_star - un_L) * (S_star + p_L/(rho_L * (S_L - un_L)))])
-    U_star_R = rho_R * (S_R - un_R) / (S_R - S_star) * np.array([1, S_star, v_R, E_R/rho_R + (S_star - un_R) * (S_star + p_R/(rho_R * (S_R - un_R)))])
+    p_star = p_L + rho_L * (un_L - S_L) * (un_L - S_star)
+
+    # Corrected U_star_L and U_star_R calculation
+    U_star_L = (S_L * U_L - F_L + np.array([0, p_star * normal[0], p_star * normal[1], p_star * S_star])) / (S_L - S_star)
+    U_star_R = (S_R * U_R - F_R + np.array([0, p_star * normal[0], p_star * normal[1], p_star * S_star])) / (S_R - S_star)
 
     if S_star >= 0:
         return F_L + S_L * (U_star_L - U_L)
