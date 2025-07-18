@@ -6,6 +6,8 @@ __pycache__/
 trunk/**
 *.gif
 
+data/*.msh
+
 # C extensions
 *.so
 

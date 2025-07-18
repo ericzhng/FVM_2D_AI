@@ -44,12 +44,12 @@ def setup_case_euler(mesh: Mesh, gamma=1.4):
         E = p / (gamma - 1) + 0.5 * rho * (u**2 + v**2)
         U[i] = np.array([rho, rho * u, rho * v, E])
 
-    # Define boundary conditions for Euler equations
+    # Define boundary conditions for Euler equations - all transmissive
     boundary_conditions = {
-        "top": {"type": "wall"},
-        "bottom": {"type": "wall"},
-        "left": {"type": "inlet", "value": np.array([1.0, 0.75, 0.0, 2.5])}, # rho, rho*u, rho*v, E
-        "right": {"type": "outlet", "value": np.array([0.125, 0.0, 0.0, 0.25])}
+        "top": {"type": "outlet"},
+        "bottom": {"type": "outlet"},
+        "left": {"type": "outlet"},
+        "right": {"type": "outlet"}
     }
 
     return U, boundary_conditions
