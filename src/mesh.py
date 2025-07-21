@@ -1,6 +1,10 @@
 import numpy as np
 import gmsh
 
+import matplotlib.tri as tri
+import matplotlib.pyplot as plt
+from matplotlib.patches import Polygon
+
 
 class Mesh:
     """
@@ -84,7 +88,6 @@ class Mesh:
         self._compute_cell_centroids()
         self._compute_mesh_properties()
         self._compute_cell_volumes()
-
 
     def _get_boundary_info(self):
         """
@@ -199,6 +202,8 @@ class Mesh:
         self.face_normals = np.zeros((self.nelem, faces_per_elem, 3))
         self.face_tangentials = np.zeros((self.nelem, faces_per_elem, 3))
         self.face_areas = np.zeros((self.nelem, faces_per_elem))
+        self.face_midpoints = np.zeros((self.nelem, faces_per_elem, 3))
+        self.face_to_cell_distances = np.zeros((self.nelem, faces_per_elem, 2))
         self.elem_faces = [[] for _ in range(self.nelem)]
 
         for i in range(self.nelem):
@@ -215,15 +220,25 @@ class Mesh:
         for i in range(self.nelem):
             for j, face_nodes in enumerate(self.elem_faces[i]):
                 elems = face_to_elems[face_nodes]
+                neighbor_idx = -1
                 if len(elems) > 1:
-                    self.cell_neighbors[i, j] = elems[0] if elems[1] == i else elems[1]
-                else:
-                    self.cell_neighbors[i, j] = -1
+                    neighbor_idx = elems[0] if elems[1] == i else elems[1]
+                self.cell_neighbors[i, j] = neighbor_idx
 
                 node_indices = [
                     np.where(self.node_tags == tag)[0][0] for tag in face_nodes
                 ]
                 nodes = self.node_coords[np.array(node_indices)]
+                face_midpoint = np.mean(nodes, axis=0)
+                self.face_midpoints[i, j] = face_midpoint
+
+                d_i = np.linalg.norm(face_midpoint - self.cell_centroids[i])
+                d_j = (
+                    np.linalg.norm(face_midpoint - self.cell_centroids[neighbor_idx])
+                    if neighbor_idx != -1
+                    else 0
+                )
+                self.face_to_cell_distances[i, j] = [d_i, d_j]
 
                 if self.dim == 2:
                     p1, p2 = nodes[0], nodes[1]
@@ -241,7 +256,6 @@ class Mesh:
                         else np.zeros(3)
                     )
 
-                    face_midpoint = (p1 + p2) / 2.0
                     if np.dot(normal, face_midpoint - self.cell_centroids[i]) < 0:
                         normal = -normal
                     self.face_normals[i, j] = normal
@@ -363,9 +377,78 @@ class Mesh:
         }
 
 
+def plot_mesh(mesh: Mesh):
+    """
+    Visualizes the computational mesh, including element and node labels, and face normals.
+
+    This function is useful for debugging and verifying the mesh structure.
+
+    Args:
+        mesh (Mesh): The mesh object to visualize.
+    """
+    fig, ax = plt.subplots(figsize=(12, 12))
+
+    # Plot elements and their labels
+    for i, elem_nodes_tags in enumerate(mesh.elem_conn):
+        node_indices = [
+            np.where(mesh.node_tags == tag)[0][0] for tag in elem_nodes_tags
+        ]
+        nodes = mesh.node_coords[np.array(node_indices)]
+        polygon = Polygon(nodes[:, :2], edgecolor="b", facecolor="none", lw=0.5)
+        ax.add_patch(polygon)
+        ax.text(
+            mesh.cell_centroids[i, 0],
+            mesh.cell_centroids[i, 1],
+            f"{i} (A={mesh.cell_volumes[i]:.2f})",
+            color="blue",
+            fontsize=8,
+            ha="center",
+        )
+    # Plot node labels
+    for i, coord in enumerate(mesh.node_coords):
+        ax.text(
+            coord[0],
+            coord[1],
+            str(mesh.node_tags[i]),
+            color="red",
+            fontsize=8,
+            ha="center",
+        )
+
+    # Plot face normals
+    for i in range(mesh.nelem):
+        for j, _ in enumerate(mesh.elem_faces[i]):
+            midpoint = mesh.face_midpoints[i, j]
+            normal = mesh.face_normals[i, j]
+            face_to_cell_distances = mesh.face_to_cell_distances[i, j][0]
+
+            # Scale for visibility
+            normal_scaled = normal * face_to_cell_distances * 0.5
+
+            # Plot normal vector
+            ax.quiver(
+                midpoint[0],
+                midpoint[1],
+                normal_scaled[0],
+                normal_scaled[1],
+                angles="xy",
+                scale_units="xy",
+                scale=1,
+                color="green",
+                width=0.003,
+            )
+
+    ax.set_aspect("equal", "box")
+    ax.set_title("Mesh Visualization")
+    plt.xlabel("X-coordinate")
+    plt.ylabel("Y-coordinate")
+    plt.grid(False)
+    plt.show()
+
+
 if __name__ == "__main__":
     try:
-        mesh_file = "./data/rectangle_mesh.msh"
+        mesh_file = "./data/complex_shape_mesh.msh"
 
         # New workflow
         mesh = Mesh()
@@ -383,3 +466,5 @@ if __name__ == "__main__":
         print(f"Error: Mesh file not found at {mesh_file}")
     except Exception as e:
         print(f"An error occurred: {e}")
+
+    plot_mesh(mesh)

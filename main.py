@@ -1,7 +1,7 @@
-from src.mesh import Mesh
+from src.mesh import Mesh, plot_mesh
 from src.solver import solve
 from src.case_setup import setup_case_shallow_water, setup_case_euler
-from src.visualization import plot_simulation_step, create_animation, plot_mesh
+from src.visualization import plot_simulation_step, create_animation
 from src.euler_equations import EulerEquations
 from src.shallow_water_equations import ShallowWaterEquations
 
@@ -20,7 +20,7 @@ def main():
     # --- 1. Initialize and Read Mesh ---
     print("Initializing and reading mesh...")
     mesh = Mesh()
-    mesh.read_mesh("data/rectangle_mesh.msh")
+    mesh.read_mesh("data/complex_shape_mesh.msh")
     mesh.analyze_mesh()
     mesh.summary()
     # plot_mesh(mesh)  # Optional: Uncomment to visualize the mesh and check normals

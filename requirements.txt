@@ -3,3 +3,4 @@ scipy
 gmsh
 matplotlib
 jupyterlab
+pytest>=8.3.5

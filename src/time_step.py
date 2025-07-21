@@ -1,6 +1,7 @@
 import numpy as np
 
-def calculate_adaptive_dt(mesh, U, calculate_wave_speed, cfl_number):
+
+def calculate_adaptive_dt(mesh, U, equation, cfl_number):
     """
     Calculates the adaptive time step for the simulation based on the CFL condition.
 
@@ -18,18 +19,11 @@ def calculate_adaptive_dt(mesh, U, calculate_wave_speed, cfl_number):
         float: The calculated adaptive time step (dt).
     """
     max_wave_speed = 0.0
+
+    min_value = float("inf")
+    # Calculate the maximum wave speed in the domain
     for i in range(mesh.nelem):
-        wave_speed = calculate_wave_speed(U[i])
-        if wave_speed > max_wave_speed:
-            max_wave_speed = wave_speed
+        value = np.sqrt(mesh.cell_volumes[i]) / equation.max_eigenvalue(U[i])
+        min_value = min(min_value, value)
 
-    # Characteristic length (e.g., smallest cell diameter)
-    # A simple approximation is the square root of the minimum cell volume (for 2D)
-    char_length = np.sqrt(np.min(mesh.cell_volumes))
-
-    # Avoid division by zero if the fluid is at rest
-    if max_wave_speed > 1e-9:
-        return cfl_number * char_length / max_wave_speed
-    else:
-        # Return a small, fixed time step if there is no flow
-        return 1e-3
+    return cfl_number * min_value
