@@ -1,8 +1,9 @@
 import gmsh
 import sys
+import os
 
 
-def create_and_mesh_rectangle(length, height, mesh_size):
+def create_and_mesh_rectangle(length, height, mesh_size, filename="data/rectangle_mesh.msh"):
     """
     Creates a rectangle, meshes it with quadrilateral elements,
     creates physical groups for its sides, and extracts mesh information.
@@ -11,7 +12,13 @@ def create_and_mesh_rectangle(length, height, mesh_size):
         length (float): The length of the rectangle along the x-axis.
         height (float): The height of the rectangle along the y-axis.
         mesh_size (float): The desired element size for the mesh.
+        filename (str): The path to save the output .msh file.
     """
+
+    output_dir = os.path.dirname(filename)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        print(f"Created directory: {output_dir}")
 
     # Initialize Gmsh
     gmsh.initialize()
@@ -117,8 +124,8 @@ def create_and_mesh_rectangle(length, height, mesh_size):
             current_node_idx += num_nodes_per_elem
 
     # Optional: Save the mesh to a .msh file for visualization
-    gmsh.write("data/rectangle_mesh.msh")
-    print("\nMesh saved to rectangle_mesh.msh")
+    gmsh.write(filename)
+    print(f"\nMesh saved to {filename}")
 
     # Finalize Gmsh
     gmsh.finalize()

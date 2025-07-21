@@ -1,5 +1,6 @@
 import gmsh
 import sys
+import os
 
 def create_and_mesh_rectangle(length, height, nx, ny, filename="data/rectangle_mesh.msh"):
     """
@@ -15,6 +16,12 @@ def create_and_mesh_rectangle(length, height, nx, ny, filename="data/rectangle_m
         ny (int): The number of elements along the height (y-axis).
         filename (str): The path to save the output .msh file.
     """
+    
+    output_dir = os.path.dirname(filename)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        print(f"Created directory: {output_dir}")
+
     gmsh.initialize()
     gmsh.model.add("structured_rectangle")
 
