@@ -51,8 +51,24 @@ def compute_gradients_gaussian(mesh: Mesh, U, over_relaxation=1.2):
             face_area = mesh.face_areas[i, j]
 
             if neighbor_idx != -1:
-                # Standard face value is the average of the two cell-centered values
-                U_face = 0.5 * (U[i] + U[neighbor_idx])
+                # For non-uniform meshes, a distance-weighted interpolation is more accurate.
+                face_nodes_tags = mesh.elem_faces[i][j]
+                node_coords = [
+                    mesh.node_coords[np.where(mesh.node_tags == tag)[0][0]]
+                    for tag in face_nodes_tags
+                ]
+                face_midpoint = np.mean(node_coords, axis=0)
+
+                d_i = np.linalg.norm(face_midpoint - mesh.cell_centroids[i])
+                d_j = np.linalg.norm(face_midpoint - mesh.cell_centroids[neighbor_idx])
+
+                if d_i + d_j > 1e-9:
+                    w_i = d_j / (d_i + d_j)
+                    w_j = d_i / (d_i + d_j)
+                    U_face = w_i * U[i] + w_j * U[neighbor_idx]
+                else:
+                    # Fallback to simple average if distances are zero
+                    U_face = 0.5 * (U[i] + U[neighbor_idx])
 
                 # Non-orthogonal correction for unstructured meshes
                 d = mesh.cell_centroids[neighbor_idx] - mesh.cell_centroids[i]
@@ -91,7 +107,7 @@ def compute_limiters(mesh: Mesh, U, gradients, limiter_type="barth_jespersen"):
         mesh (Mesh): The mesh object.
         U (np.ndarray): The conservative state vector for all cells.
         gradients (np.ndarray): The gradients of the state variables.
-        limiter_type (str, optional): The type of limiter to use. 
+        limiter_type (str, optional): The type of limiter to use.
                                     Defaults to "barth_jespersen".
 
     Returns:
@@ -185,7 +201,7 @@ def solve(
     U,
     boundary_conditions,
     equation,
-    t_end=2.0,
+    t_end,
     over_relaxation=1.2,
     limiter="barth_jespersen",
     use_adaptive_dt=True,
@@ -231,7 +247,7 @@ def solve(
         # --- Second-Order Reconstruction ---
         gradients = compute_gradients_gaussian(mesh, U, over_relaxation)
         limiters = compute_limiters(mesh, U, gradients, limiter_type=limiter)
-        
+
         U_new = U.copy()
 
         # --- Flux Integration Loop ---
@@ -268,12 +284,12 @@ def solve(
                         "name", "wall"
                     )
                     bc_info = boundary_conditions.get(bc_name, {"type": "wall"})
-                    
+
                     # Get ghost cell state based on boundary condition
                     U_ghost = equation.apply_boundary_condition(
                         U[i], face_normal, bc_info
                     )
-                    
+
                     # Flux is computed between the interior cell and the ghost cell
                     flux = equation.hllc_flux(U[i], U_ghost, face_normal)
 

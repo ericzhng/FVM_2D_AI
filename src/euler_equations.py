@@ -105,7 +105,9 @@ class EulerEquations(BaseEquation):
         un_L = (rho_u_L * normal[0] + rho_v_L * normal[1]) / rho_L
         un_R = (rho_u_R * normal[0] + rho_v_R * normal[1]) / rho_R
 
-        numerator = p_R - p_L + rho_L * un_L * (S_L - un_L) - rho_R * un_R * (S_R - un_R)
+        numerator = (
+            p_R - p_L + rho_L * un_L * (S_L - un_L) - rho_R * un_R * (S_R - un_R)
+        )
         denominator = rho_L * (S_L - un_L) - rho_R * (S_R - un_R)
 
         # Avoid division by zero
@@ -142,6 +144,7 @@ class EulerEquations(BaseEquation):
         Calculates the maximum wave speed in a cell for the CFL condition.
         """
         rho, rho_u, rho_v, E = U_cell
+        rho = max(rho, 1e-9)  # Avoid division by zero
         u = rho_u / rho
         v = rho_v / rho
         p = (self.gamma - 1) * (E - 0.5 * rho * (u**2 + v**2))

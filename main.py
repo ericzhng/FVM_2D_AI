@@ -37,7 +37,7 @@ def main():
     elif equation_type == "euler":
         U_init, boundary_conditions = setup_case_euler(mesh)
         equation = EulerEquations(gamma=1.4)
-        t_end = 0.2
+        t_end = 0.25
         variable_to_plot = 0  # Plot density
     else:
         raise ValueError("Invalid equation type specified.")
@@ -54,7 +54,7 @@ def main():
         limiter="minmod",  # Options: 'barth_jespersen', 'minmod', 'superbee'
         use_adaptive_dt=True,
         cfl=0.5,
-        dt_initial=1e-4,
+        dt_initial=1e-2,
     )
     print("Solver finished.")
 
