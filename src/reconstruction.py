@@ -48,7 +48,7 @@ def compute_gradients_gaussian(mesh: Mesh, U, over_relaxation=1.2):
     for i in range(mesh.nelem):
         grad_sum = np.zeros((nvars, 2))
         for j, neighbor_idx in enumerate(mesh.cell_neighbors[i]):
-            face_normal = mesh.face_normals[i, j, :2]
+            face_normal = mesh.face_normals[i, j]
             face_area = mesh.face_areas[i, j]
 
             if neighbor_idx != -1:
@@ -67,14 +67,16 @@ def compute_gradients_gaussian(mesh: Mesh, U, over_relaxation=1.2):
                 if np.linalg.norm(d) > 1e-9:
                     e = d / np.linalg.norm(d)
                     k = face_normal / np.linalg.norm(face_normal)
-                    k = np.append(k, 0)
                     if abs(np.dot(d, k)) > 1e-9:
-                        non_orth_correction = (
-                            (U[neighbor_idx] - U[i])
-                            * (e - k * np.dot(e, k))
-                            / np.dot(d, k)
-                        )
-                        U_face += over_relaxation * non_orth_correction
+                        # The correction term is a scalar, but was calculated as a vector.
+                        # The correction vector is dotted with the cell-to-cell vector 'd'
+                        # to get a scalar correction value.
+                        correction_vector = (e - k * np.dot(e, k)) / np.dot(d, k)
+                        for m in range(nvars):
+                            non_orth_correction = (
+                                U[neighbor_idx, m] - U[i, m]
+                            ) * np.dot(correction_vector, d)
+                            U_face[m] += over_relaxation * non_orth_correction
             else:
                 # Boundary face: use the interior cell value
                 U_face = U[i]
@@ -110,20 +112,22 @@ def compute_limiters(mesh: Mesh, U, gradients, limiter_type="barth_jespersen"):
     limiters = np.ones((mesh.nelem, nvars))
 
     for i in range(mesh.nelem):
+        cell_neighbors = mesh.cell_neighbors[i]
+        nfaces = cell_neighbors.shape[0]
         U_i = U[i]
         grad_i = gradients[i]
 
         # Determine the max and min values among the cell and its neighbors
         U_max = U_i.copy()
         U_min = U_i.copy()
-        for neighbor_idx in mesh.cell_neighbors[i]:
+        for neighbor_idx in cell_neighbors:
             if neighbor_idx != -1:
                 U_neighbor = U[neighbor_idx]
                 U_max = np.maximum(U_max, U_neighbor)
                 U_min = np.minimum(U_min, U_neighbor)
 
         # Check against extrapolated values at face midpoints
-        for j, face_nodes in enumerate(mesh.elem_faces[i]):
+        for j in range(nfaces):
             face_midpoint = mesh.face_midpoints[i, j]
             r_if = face_midpoint - mesh.cell_centroids[i]
 
@@ -145,47 +149,15 @@ def compute_limiters(mesh: Mesh, U, gradients, limiter_type="barth_jespersen"):
     return limiters
 
 
-def muscl_reconstruction(
-    U_i,
-    U_j,
-    grad_i,
-    grad_j,
-    limiter_i,
-    limiter_j,
-    centroid_i,
-    centroid_j,
-    face_midpoint,
-):
-    """
-    Reconstructs the state variables at the face midpoint using the MUSCL scheme.
-
-    This provides second-order spatial accuracy by extrapolating the cell-centered
-    values to the faces using the computed gradients and limiters.
-
-    Args:
-        U_i, U_j (np.ndarray): State vectors of the left and right cells.
-        grad_i, grad_j (np.ndarray): Gradients in the left and right cells.
-        limiter_i, limiter_j (np.ndarray): Limiter values for the left and right cells.
-        centroid_i, centroid_j (np.ndarray): Centroids of the left and right cells.
-        face_midpoint (np.ndarray): Midpoint of the face.
-
-    Returns:
-        tuple: A tuple containing the reconstructed state vectors at the left and
-               right sides of the face (U_L, U_R).
-    """
-    r_if = face_midpoint - centroid_i
-    r_jf = face_midpoint - centroid_j
-
-    delta_U_i = np.array([np.dot(grad_i[k], r_if[:2]) for k in range(U_i.shape[0])])
-    delta_U_j = np.array([np.dot(grad_j[k], r_jf[:2]) for k in range(U_j.shape[0])])
-
-    U_L = U_i + limiter_i * delta_U_i
-    U_R = U_j + limiter_j * delta_U_j
-
-    return U_L, U_R
-
-
-def reconst_func(mesh: Mesh, U, equation, boundary_conditions, dt) -> np.ndarray:
+def reconst_func(
+    mesh: Mesh,
+    U,
+    equation,
+    boundary_conditions,
+    limiter_type,
+    flux_type,
+    over_relaxation=1.2,
+) -> np.ndarray:
     """
     Performs MUSCL reconstruction to determine the states at the left and right
     sides of each internal face.
@@ -199,53 +171,56 @@ def reconst_func(mesh: Mesh, U, equation, boundary_conditions, dt) -> np.ndarray
         tuple[np.ndarray, np.ndarray]: A tuple containing the reconstructed states
         at the left (U_L) and right (U_R) sides of each internal face.
     """
-    nvars = U.shape[1]
-    nelem = mesh.nelem
-
     # --- Second-Order Reconstruction ---
-    gradients = compute_gradients_gaussian(mesh, U, over_relaxation=1.2)
-    limiters = compute_limiters(mesh, U, gradients, limiter_type="minmod")
+    nvars = U.shape[1]
 
-    U_new = U.copy()
+    gradients = compute_gradients_gaussian(mesh, U, over_relaxation)
+    limiters = compute_limiters(mesh, U, gradients, limiter_type=limiter_type)
+
+    res = U.copy()
 
     # --- Flux Integration Loop ---
     for i in range(mesh.nelem):
         for j, neighbor_idx in enumerate(mesh.cell_neighbors[i]):
-            face_normal = mesh.face_normals[i, j, :2]
+            face_normal = mesh.face_normals[i, j, 0:2]
             face_area = mesh.face_areas[i, j]
 
             if neighbor_idx != -1:
                 # --- Interior Face ---
                 face_midpoint = mesh.face_midpoints[i, j]
+                d_i = face_midpoint - mesh.cell_centroids[i]
+                d_j = mesh.cell_centroids[neighbor_idx] - face_midpoint
 
-                U_L, U_R = muscl_reconstruction(
-                    U[i],
-                    U[neighbor_idx],
-                    gradients[i],
-                    gradients[neighbor_idx],
-                    limiters[i],
-                    limiters[neighbor_idx],
-                    mesh.cell_centroids[i],
-                    mesh.cell_centroids[neighbor_idx],
-                    face_midpoint,
+                delta_U_i = np.array(
+                    [np.dot(gradients[i, k], d_i[:2]) for k in range(nvars)]
                 )
-                flux = equation.hllc_flux(U_L, U_R, face_normal)
+                delta_U_j = np.array(
+                    [np.dot(gradients[neighbor_idx, k], d_j[:2]) for k in range(nvars)]
+                )
+
+                U_L = U[i] + limiters[i] * delta_U_i
+                U_R = U[neighbor_idx] + limiters[neighbor_idx] * delta_U_j
+
+                if flux_type == "roe":
+                    flux = equation.roe_flux(U_L, U_R, face_normal)
+                elif flux_type == "hllc":
+                    flux = equation.hllc_flux(U_L, U_R, face_normal)
             else:
                 # --- Boundary Face ---
                 face_tuple = tuple(sorted(mesh.elem_faces[i][j]))
-                bc_name = mesh.boundary_faces.get(face_tuple, {}).get(
-                    "name", "wall"
-                )
+                bc_name = mesh.boundary_faces.get(face_tuple, {}).get("name", "wall")
                 bc_info = boundary_conditions.get(bc_name, {"type": "wall"})
 
                 # Get ghost cell state based on boundary condition
-                U_ghost = equation.apply_boundary_condition(
-                    U[i], face_normal, bc_info
-                )
+                U_ghost = equation.apply_boundary_condition(U[i], face_normal, bc_info)
 
                 # Flux is computed between the interior cell and the ghost cell
-                flux = equation.hllc_flux(U[i], U_ghost, face_normal)
+                if flux_type == "roe":
+                    flux = equation.roe_flux(U[i], U_ghost, face_normal)
+                elif flux_type == "hllc":
+                    flux = equation.hllc_flux(U[i], U_ghost, face_normal)
 
-            # Update the solution
-            U_new[i] -= (dt / mesh.cell_volumes[i]) * flux * face_area
-    return U_new
+            res[i] -= (face_area / mesh.cell_volumes[i]) * flux
+            res[neighbor_idx] += (face_area / mesh.cell_volumes[i]) * flux
+
+    return res

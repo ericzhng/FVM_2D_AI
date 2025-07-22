@@ -35,7 +35,7 @@ class EulerEquations(BaseEquation):
             np.ndarray: Primitive state vector [rho, u, v, p].
         """
         rho, rho_u, rho_v, E = U
-        rho = max(rho, 1e-9)  # Avoid division by zero
+        rho = max(rho, 1e-6)  # Avoid division by zero
         # Calculate primitive variables
         u = rho_u / rho
         v = rho_v / rho
@@ -54,7 +54,7 @@ class EulerEquations(BaseEquation):
         """
         rho, u, v, p = self._cons_to_prim(U)
         vnL = u * normal[0] + v * normal[1]
-        HL = (U[4] + p) / rho
+        HL = (U[3] + p) / rho
 
         # Left and Right fluxes (normal flux)
         F = np.array(
@@ -168,13 +168,13 @@ class EulerEquations(BaseEquation):
         rL, uL, vL, pL = self._cons_to_prim(U_L)
         vnL = uL * nx + vL * ny
         aL = np.sqrt(self.gamma * pL / rL)
-        HL = (U_L[4] + pL) / rL
+        HL = (U_L[3] + pL) / rL
 
         # Right state
         rR, uR, vR, pR = self._cons_to_prim(U_R)
         vnR = uR * nx + vR * ny
         aR = np.sqrt(self.gamma * pR / rR)
-        HR = (U_R[4] + pR) / rR
+        HR = (U_R[3] + pR) / rR
 
         # Left and Right fluxes (normal flux)
         FL = np.array(
@@ -250,7 +250,7 @@ class EulerEquations(BaseEquation):
                         1,
                         SM * nx + uL * abs(ny),
                         SM * ny + vL * abs(nx),
-                        U_L[4] / rL + (SM - vnL) * (SM + pL / (rL * (SL - vnL))),
+                        U_L[3] / rL + (SM - vnL) * (SM + pL / (rL * (SL - vnL))),
                     ]
                 )
             )
@@ -265,7 +265,7 @@ class EulerEquations(BaseEquation):
                         1,
                         SM * nx + uR * abs(ny),
                         SM * ny + vR * abs(nx),
-                        U_R[4] / rR + (SM - vnR) * (SM + pR / (rR * (SR - vnR))),
+                        U_R[3] / rR + (SM - vnR) * (SM + pR / (rR * (SR - vnR))),
                     ]
                 )
             )
@@ -296,13 +296,13 @@ class EulerEquations(BaseEquation):
         rL, uL, vL, pL = self._cons_to_prim(U_L)
         vnL = uL * nx + vL * ny
         vtL = uL * tx + vL * ty
-        HL = (U_L[4] + pL) / rL
+        HL = (U_L[3] + pL) / rL
 
         # Right state
         rR, uR, vR, pR = self._cons_to_prim(U_R)
         vnR = uR * nx + vR * ny
         vtR = uR * tx + vR * ty
-        HR = (U_R[4] + pR) / rR
+        HR = (U_R[3] + pR) / rR
 
         # Roe Averages
         RT = np.sqrt(rR / rL)

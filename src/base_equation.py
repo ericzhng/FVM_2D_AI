@@ -22,6 +22,18 @@ class BaseEquation(ABC):
         """
         pass
 
+    def cons_to_prim_batch(self, U_batch):
+        """
+        Converts a batch of conservative variables to primitive variables.
+
+        Args:
+            U_batch (np.ndarray): Array of conservative state vectors.
+
+        Returns:
+            np.ndarray: Array of primitive state vectors.
+        """
+        return np.apply_along_axis(self._cons_to_prim, 1, U_batch)
+
     @abstractmethod
     def _compute_flux(self, U, normal):
         """

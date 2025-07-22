@@ -20,7 +20,7 @@ def main():
     # --- 1. Initialize and Read Mesh ---
     print("Initializing and reading mesh...")
     mesh = Mesh()
-    mesh.read_mesh("data/complex_shape_mesh.msh")
+    mesh.read_mesh("data/rectangle_mesh.msh")
     mesh.analyze_mesh()
     mesh.summary()
     # plot_mesh(mesh)  # Optional: Uncomment to visualize the mesh and check normals
@@ -50,11 +50,13 @@ def main():
         boundary_conditions,
         equation,
         t_end=t_end,
+        limiter_type="minmod",  # Options: 'barth_jespersen', 'minmod', 'superbee'
+        flux_type="hllc",
         over_relaxation=1.2,
-        limiter="minmod",  # Options: 'barth_jespersen', 'minmod', 'superbee'
         use_adaptive_dt=True,
         cfl=0.5,
         dt_initial=1e-2,
+        variable_to_plot=variable_to_plot,
     )
     print("Solver finished.")
 

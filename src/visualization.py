@@ -28,12 +28,12 @@ def plot_simulation_step(mesh: Mesh, U, title="", variable_to_plot=0):
         if len(node_indices) == 4:
             triangles.append([node_indices[0], node_indices[1], node_indices[2]])
             triangles.append([node_indices[0], node_indices[2], node_indices[3]])
-            facecolors.extend([h[i], h[i]])
+            facecolors.extend([var[i], var[i]])
         else:
             triangles.append(node_indices)
-            facecolors.append(h[i])
+            facecolors.append(var[i])
 
-    plt.figure(figsize=(12, 5))
+    plt.figure(figsize=(12, 12))
     plt.tripcolor(
         x, y, triangles=triangles, facecolors=facecolors, shading="flat", cmap="viridis"
     )
