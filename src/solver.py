@@ -22,21 +22,34 @@ def solve(
     """
     Main solver loop for the Finite Volume Method.
 
-    This function orchestrates the time-stepping process, including gradient
-    computation, slope limiting, MUSCL reconstruction, and flux calculation.
+    This function orchestrates the time-stepping process for solving hyperbolic
+    conservation laws. It supports first-order Euler and second-order Runge-Kutta
+    (RK2) time integration schemes, along with adaptive time-stepping based on
+    the Courant-Friedrichs-Lewy (CFL) condition.
+
+    The spatial discretization is handled by the `compute_residual` function,
+    which implements a MUSCL-Hancock scheme for second-order accuracy.
 
     Args:
         mesh (Mesh): The mesh object.
         U (np.ndarray): The initial conservative state vector.
         boundary_conditions (dict): A dictionary defining the boundary conditions.
-        equation (BaseEquation): The equation system to be solved.
-        t_end (float, optional): The end time of the simulation. Defaults to 2.0.
-        over_relaxation (float, optional): Over-relaxation factor. Defaults to 1.2.
-        limiter (str, optional): The type of slope limiter. Defaults to "barth_jespersen".
+        equation (BaseEquation): The equation system to be solved (e.g., EulerEquations).
+        t_end (float): The end time of the simulation.
+        limiter_type (str, optional): The type of slope limiter for MUSCL reconstruction.
+                                    Defaults to "barth_jespersen".
+        flux_type (str, optional): The numerical flux function (Riemann solver).
+                                 Defaults to "roe".
+        over_relaxation (float, optional): Over-relaxation factor for gradient computation.
+                                         Defaults to 1.2.
         use_adaptive_dt (bool, optional): Whether to use adaptive time stepping.
                                         Defaults to True.
-        cfl (float, optional): The CFL number for adaptive time stepping. Defaults to 0.5.
-        dt_initial (float, optional): The initial time step. Defaults to 0.01.
+        cfl (float, optional): The CFL number for adaptive time stepping.
+                             Defaults to 0.5.
+        dt_initial (float, optional): The initial time step if not adaptive.
+                                    Defaults to 0.01.
+        variable_to_plot (int, optional): The index of the variable to plot during simulation.
+                                        Defaults to 0.
 
     Returns:
         tuple: A tuple containing the history of the state vector and the history
@@ -47,26 +60,25 @@ def solve(
     n = 0
     dt_history = []
     dt = dt_initial
-    time_integration_method = "rk2"
+    time_integration_method = "rk2"  # Choose between "euler" and "rk2"
 
+    # Initial plot of the solution
     plot_simulation_step(
         mesh, equation.cons_to_prim_batch(U), f"t={t:.4f}", variable_to_plot
     )
 
     while t < t_end:
+        # --- Adaptive Time-Stepping ---
         if use_adaptive_dt:
             dt = calculate_adaptive_dt(mesh, U, equation, cfl)
-            # Compute time step
-            dt = min(dt, t_end - t)
+            dt = min(dt, t_end - t)  # Ensure the last step does not overshoot t_end
 
-        t += dt
-        n += 1
-
-        # chosen between RK2 and 1st order update
-        # RK2 method
+        # --- Time Integration ---
         if time_integration_method == "rk2":
-            # RK2 1st step
-            U_star = U - dt * reconst_func(
+            # --- Second-Order Runge-Kutta (RK2) Method ---
+            # Stage 1: Compute intermediate state U_star
+            # U_star = U - dt * R(U)
+            residual_U = compute_residual(
                 mesh,
                 U,
                 equation,
@@ -75,26 +87,25 @@ def solve(
                 flux_type,
                 over_relaxation,
             )
+            U_star = U - dt * residual_U
 
-            # RK2 2nd step / update U
-            U_new = (
-                U
-                + U_star
-                - dt
-                * reconst_func(
-                    mesh,
-                    U,
-                    equation,
-                    boundary_conditions,
-                    limiter_type,
-                    flux_type,
-                    over_relaxation,
-                )
-            ) / 2.0
+            # Stage 2: Compute final state U_new using U_star
+            # U_new = 0.5 * (U + U_star - dt * R(U_star))
+            residual_U_star = compute_residual(
+                mesh,
+                U_star,  # Use the intermediate state for the second residual calculation
+                equation,
+                boundary_conditions,
+                limiter_type,
+                flux_type,
+                over_relaxation,
+            )
+            U_new = 0.5 * (U + U_star - dt * residual_U_star)
 
-        elif time_integration_method == "euler":  # 1st order update
-            # 1st order update
-            U_new = U - dt * reconst_func(
+        elif time_integration_method == "euler":
+            # --- First-Order Euler Method ---
+            # U_new = U - dt * R(U)
+            residual = compute_residual(
                 mesh,
                 U,
                 equation,
@@ -103,17 +114,21 @@ def solve(
                 flux_type,
                 over_relaxation,
             )
+            U_new = U - dt * residual
 
-        # raise error if not the above
         else:
             raise NotImplementedError(
                 f"Time integration method '{time_integration_method}' is not supported."
             )
 
+        # Update state and time
         U = U_new
         t += dt
+        n += 1
+
+        # Store history and print progress
         history.append(U.copy())
         dt_history.append(dt)
-        print(f"Time: {t:.4f}s / {t_end:.4f}s, dt = {dt:.4f}s")
+        print(f"Time: {t:.4f}s / {t_end:.4f}s, dt = {dt:.4f}s, Step: {n}")
 
     return history, dt_history

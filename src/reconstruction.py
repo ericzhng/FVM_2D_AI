@@ -149,78 +149,105 @@ def compute_limiters(mesh: Mesh, U, gradients, limiter_type="barth_jespersen"):
     return limiters
 
 
-def reconst_func(
+def compute_residual(
     mesh: Mesh,
-    U,
+    U: np.ndarray,
     equation,
-    boundary_conditions,
-    limiter_type,
-    flux_type,
-    over_relaxation=1.2,
+    boundary_conditions: dict,
+    limiter_type: str,
+    flux_type: str,
+    over_relaxation: float = 1.2,
 ) -> np.ndarray:
     """
-    Performs MUSCL reconstruction to determine the states at the left and right
-    sides of each internal face.
+    Computes the residual for the finite volume discretization.
+
+    The residual represents the rate of change of the conservative variables
+    in each cell, and is calculated as the sum of fluxes across all faces
+    of the cell, divided by the cell volume.
+
+    This function implements a second-order MUSCL-Hancock scheme for spatial
+    reconstruction, which involves:
+    1. Gradient computation at cell centroids.
+    2. Slope limiting to prevent spurious oscillations.
+    3. Reconstruction of cell-face values from cell-centroid values.
+    4. Numerical flux calculation at each face using a Riemann solver (Roe or HLLC).
+    5. Summation of fluxes to compute the cell residual.
 
     Args:
         mesh (Mesh): The mesh object.
         U (np.ndarray): The array of conservative state vectors for all cells.
         equation: The equation object (e.g., EulerEquations).
+        boundary_conditions (dict): A dictionary defining the boundary conditions.
+        limiter_type (str): The type of slope limiter to use.
+        flux_type (str): The type of numerical flux (Riemann solver) to use.
+        over_relaxation (float, optional): Over-relaxation factor for gradient
+                                         computation. Defaults to 1.2.
 
     Returns:
-        tuple[np.ndarray, np.ndarray]: A tuple containing the reconstructed states
-        at the left (U_L) and right (U_R) sides of each internal face.
+        np.ndarray: The residual array for all cells.
     """
-    # --- Second-Order Reconstruction ---
     nvars = U.shape[1]
 
+    # --- 1. Gradient Computation ---
+    # Gradients are computed at cell centroids and used for second-order reconstruction.
     gradients = compute_gradients_gaussian(mesh, U, over_relaxation)
+
+    # --- 2. Slope Limiting ---
+    # Limiters are applied to the gradients to ensure monotonicity and prevent oscillations.
     limiters = compute_limiters(mesh, U, gradients, limiter_type=limiter_type)
 
-    res = U.copy()
+    # Initialize residual array
+    residual = np.zeros_like(U)
 
-    # --- Flux Integration Loop ---
+    # --- 3. Flux Integration Loop ---
+    # This loop iterates through each cell, calculates the fluxes on its faces,
+    # and aggregates them to compute the residual for that cell.
     for i in range(mesh.nelem):
+        flux_sum = np.zeros(nvars)
         for j, neighbor_idx in enumerate(mesh.cell_neighbors[i]):
             face_normal = mesh.face_normals[i, j, 0:2]
             face_area = mesh.face_areas[i, j]
+            face_midpoint = mesh.face_midpoints[i, j]
+
+            # --- 3.1. MUSCL Reconstruction ---
+            # Reconstruct the state variables at the "left" side of the face (inside the current cell).
+            r_i = face_midpoint - mesh.cell_centroids[i]
+            delta_U_i = np.array([np.dot(gradients[i, k], r_i[:2]) for k in range(nvars)])
+            U_L = U[i] + limiters[i] * delta_U_i
 
             if neighbor_idx != -1:
                 # --- Interior Face ---
-                face_midpoint = mesh.face_midpoints[i, j]
-                d_i = face_midpoint - mesh.cell_centroids[i]
-                d_j = mesh.cell_centroids[neighbor_idx] - face_midpoint
-
-                delta_U_i = np.array(
-                    [np.dot(gradients[i, k], d_i[:2]) for k in range(nvars)]
-                )
+                # Reconstruct the state variables at the "right" side of the face (inside the neighbor cell).
+                r_j = face_midpoint - mesh.cell_centroids[neighbor_idx]
                 delta_U_j = np.array(
-                    [np.dot(gradients[neighbor_idx, k], d_j[:2]) for k in range(nvars)]
+                    [np.dot(gradients[neighbor_idx, k], r_j[:2]) for k in range(nvars)]
                 )
-
-                U_L = U[i] + limiters[i] * delta_U_i
                 U_R = U[neighbor_idx] + limiters[neighbor_idx] * delta_U_j
 
-                if flux_type == "roe":
-                    flux = equation.roe_flux(U_L, U_R, face_normal)
-                elif flux_type == "hllc":
-                    flux = equation.hllc_flux(U_L, U_R, face_normal)
             else:
                 # --- Boundary Face ---
+                # For boundary faces, the "right" state is determined by the boundary condition.
+                # This ensures a consistent second-order treatment at the boundaries.
                 face_tuple = tuple(sorted(mesh.elem_faces[i][j]))
                 bc_name = mesh.boundary_faces.get(face_tuple, {}).get("name", "wall")
                 bc_info = boundary_conditions.get(bc_name, {"type": "wall"})
+                U_R = equation.apply_boundary_condition(U_L, face_normal, bc_info)
 
-                # Get ghost cell state based on boundary condition
-                U_ghost = equation.apply_boundary_condition(U[i], face_normal, bc_info)
+            # --- 3.2. Numerical Flux Calculation ---
+            # The numerical flux is computed using the specified Riemann solver.
+            if flux_type == "roe":
+                flux = equation.roe_flux(U_L, U_R, face_normal)
+            elif flux_type == "hllc":
+                flux = equation.hllc_flux(U_L, U_R, face_normal)
+            else:
+                raise ValueError(f"Unknown flux type: {flux_type}")
 
-                # Flux is computed between the interior cell and the ghost cell
-                if flux_type == "roe":
-                    flux = equation.roe_flux(U[i], U_ghost, face_normal)
-                elif flux_type == "hllc":
-                    flux = equation.hllc_flux(U[i], U_ghost, face_normal)
+            flux_sum += flux * face_area
 
-            res[i] -= (face_area / mesh.cell_volumes[i]) * flux
-            res[neighbor_idx] += (face_area / mesh.cell_volumes[i]) * flux
+        # --- 4. Residual Calculation ---
+        # The residual is the sum of fluxes divided by the cell volume.
+        # R(U_i) = (1/V_i) * sum(F_j * A_j)
+        if mesh.cell_volumes[i] > 1e-12:
+            residual[i] = flux_sum / mesh.cell_volumes[i]
 
-    return res
+    return residual
