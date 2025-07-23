@@ -136,6 +136,196 @@ class EulerEquations(BaseEquation):
     def hllc_flux(self, U_L, U_R, normal):
         """
         Computes the numerical flux using the HLLC (Harten-Lax-van Leer-Contact) Riemann solver.
+
+        The HLLC solver is a modification of the HLL solver that restores the
+        contact wave and shear waves, providing better resolution for these phenomena.
+
+        Args:
+            U_L (np.ndarray): Conservative state vector of the left cell.
+            U_R (np.ndarray): Conservative state vector of the right cell.
+            normal (np.ndarray): Normal vector of the face.
+
+        Returns:
+            np.ndarray: The HLLC numerical flux across the face.
+        """
+        nx, ny = normal
+        tx, ty = -ny, nx  # Tangent vector
+
+        # --- Left State ---
+        rL, uL, vL, pL = self._cons_to_prim(U_L)
+        vnL = uL * nx + vL * ny  # Normal velocity
+        vtL = uL * tx + vL * ty  # Tangential velocity
+        aL = np.sqrt(self.gamma * pL / rL)  # Speed of sound
+        FL = self._compute_flux(U_L, normal)
+
+        # --- Right State ---
+        rR, uR, vR, pR = self._cons_to_prim(U_R)
+        vnR = uR * nx + vR * ny  # Normal velocity
+        vtR = uR * tx + vR * ty  # Tangential velocity
+        aR = np.sqrt(self.gamma * pR / rR)  # Speed of sound
+        FR = self._compute_flux(U_R, normal)
+
+        # --- Wave Speed Estimates (Roe Averages) ---
+        # Roe-averaged density
+        r_roe = np.sqrt(rL * rR)
+        # Roe-averaged velocities
+        u_roe = (np.sqrt(rL) * uL + np.sqrt(rR) * uR) / (np.sqrt(rL) + np.sqrt(rR))
+        v_roe = (np.sqrt(rL) * vL + np.sqrt(rR) * vR) / (np.sqrt(rL) + np.sqrt(rR))
+        # Roe-averaged normal velocity
+        vn_roe = u_roe * nx + v_roe * ny
+        # Roe-averaged speed of sound
+        hL = (U_L[3] + pL) / rL  # Total enthalpy left
+        hR = (U_R[3] + pR) / rR  # Total enthalpy right
+        h_roe = (np.sqrt(rL) * hL + np.sqrt(rR) * hR) / (np.sqrt(rL) + np.sqrt(rR))
+        a_roe = np.sqrt((self.gamma - 1) * (h_roe - 0.5 * (u_roe**2 + v_roe**2)))
+
+        # --- Davis-Einfeldt Wave Speed Estimates ---
+        SL = min(vnL - aL, vn_roe - a_roe)
+        SR = max(vnR + aR, vn_roe + a_roe)
+
+        # --- Star-Region Pressure Estimate (PVRS) ---
+        p_star = max(
+            0,
+            0.5 * (pL + pR) + 0.5 * (vnL - vnR) * (0.25 * (rL + rR) * (aL + aR)),
+        )
+
+        # --- Middle Wave Speed (Contact Wave) ---
+        SM = (pR - pL + rL * vnL * (SL - vnL) - rR * vnR * (SR - vnR)) / (
+            rL * (SL - vnL) - rR * (SR - vnR)
+        )
+
+        # --- HLLC Flux Calculation ---
+        if 0 <= SL:
+            # All waves move to the right
+            return FL
+        elif SL < 0 <= SM:
+            # Left-going shock/rarefaction, contact wave to the right
+            # U_star_L = rho_L * (SL - vnL) / (SL - SM) * [1, SM*nx - vtL*ny, SM*ny + vtL*nx, E_star_L]
+            U_star_L = (
+                rL
+                * (SL - vnL)
+                / (SL - SM)
+                * np.array(
+                    [
+                        1,
+                        SM * nx - vtL * ny,  # Corrected velocity
+                        SM * ny + vtL * nx,  # Corrected velocity
+                        (U_L[3] / rL) + (SM - vnL) * (SM + pL / (rL * (SL - vnL))),
+                    ]
+                )
+            )
+            return FL + SL * (U_star_L - U_L)
+        elif SM < 0 < SR:
+            # Contact wave to the left, right-going shock/rarefaction
+            # U_star_R = rho_R * (SR - vnR) / (SR - SM) * [1, SM*nx - vtR*ny, SM*ny + vtR*nx, E_star_R]
+            U_star_R = (
+                rR
+                * (SR - vnR)
+                / (SR - SM)
+                * np.array(
+                    [
+                        1,
+                        SM * nx - vtR * ny,  # Corrected velocity
+                        SM * ny + vtR * nx,  # Corrected velocity
+                        (U_R[3] / rR) + (SM - vnR) * (SM + pR / (rR * (SR - vnR))),
+                    ]
+                )
+            )
+            return FR + SR * (U_star_R - U_R)
+        else:  # SR <= 0
+            # All waves move to the left
+            return FR
+
+    def roe_flux(self, U_L, U_R, normal):
+        """
+        Computes the numerical flux using the Roe approximate Riemann solver.
+
+        The Roe solver is known for its high resolution of contact discontinuities
+        but can be susceptible to expansion shocks without an entropy fix.
+
+        Args:
+            U_L (np.ndarray): Conservative state vector of the left cell.
+            U_R (np.ndarray): Conservative state vector of the right cell.
+            normal (np.ndarray): Normal vector of the face.
+
+        Returns:
+            np.ndarray: The Roe numerical flux across the face.
+        """
+        nx, ny = normal
+        tx, ty = -ny, nx  # Tangent vector
+
+        # --- Left and Right States ---
+        rL, uL, vL, pL = self._cons_to_prim(U_L)
+        vnL = uL * nx + vL * ny
+        vtL = uL * tx + vL * ty
+        HL = (U_L[3] + pL) / rL
+        FL = self._compute_flux(U_L, normal)
+
+        rR, uR, vR, pR = self._cons_to_prim(U_R)
+        vnR = uR * nx + vR * ny
+        vtR = uR * tx + vR * ty
+        HR = (U_R[3] + pR) / rR
+        FR = self._compute_flux(U_R, normal)
+
+        # --- Roe Averages ---
+        sqrt_rL = np.sqrt(rL)
+        sqrt_rR = np.sqrt(rR)
+        r = sqrt_rL * sqrt_rR
+        u = (sqrt_rL * uL + sqrt_rR * uR) / (sqrt_rL + sqrt_rR)
+        v = (sqrt_rL * vL + sqrt_rR * vR) / (sqrt_rL + sqrt_rR)
+        H = (sqrt_rL * HL + sqrt_rR * HR) / (sqrt_rL + sqrt_rR)
+        a_sq = (self.gamma - 1) * (H - 0.5 * (u**2 + v**2))
+        a = np.sqrt(max(a_sq, 1e-9))  # Ensure non-negativity
+        vn = u * nx + v * ny
+
+        # --- Wave Strengths (Jump in characteristics) ---
+        dr = rR - rL
+        dp = pR - pL
+        dvn = vnR - vnL
+        dvt = vtR - vtL
+
+        # dV = [l1*dV, l2*dV, l3*dV, l4*dV]
+        dV = np.array(
+            [
+                (dp - r * a * dvn) / (2 * a**2),
+                r * dvt,
+                dr - dp / a**2,
+                (dp + r * a * dvn) / (2 * a**2),
+            ]
+        )
+
+        # --- Wave Speeds (Eigenvalues) ---
+        ws = np.array([abs(vn - a), abs(vn), abs(vn), abs(vn + a)])
+
+        # --- Harten's Entropy Fix ---
+        # This fix is applied to prevent non-physical expansion shocks
+        # by adding dissipation in the case of vanishing pressure jumps.
+        delta = 0.1 * a  # Entropy fix parameter
+        ws[0] = (ws[0] * ws[0] / delta + delta) / 2 if ws[0] < delta else ws[0]
+        ws[3] = (ws[3] * ws[3] / delta + delta) / 2 if ws[3] < delta else ws[3]
+
+        # --- Right Eigenvectors Matrix ---
+        # The columns of this matrix are the right eigenvectors of the Roe matrix.
+        Rv = np.array(
+            [
+                [1, 0, 1, 1],
+                [u - a * nx, -a * ny, u, u + a * nx],
+                [v - a * ny, a * nx, v, v + a * ny],
+                [H - vn * a, -(u * ny - v * nx) * a, 0.5 * (u**2 + v**2), H + vn * a],
+            ]
+        )
+
+        # --- Roe Flux ---
+        # F_roe = 0.5 * (F_L + F_R) - 0.5 * sum(ws_i * dV_i * R_i)
+        dissipation = Rv @ (ws * dV)
+        roe_flux = 0.5 * (FL + FR - dissipation)
+
+        return roe_flux
+
+    def hllc_flux_change(self, U_L, U_R, normal):
+        """
+        NOT WORKING YET
+        Computes the numerical flux using the HLLC (Harten-Lax-van Leer-Contact) Riemann solver.
         Based on "Riemann Solvers and Numerical Methods for Fluid Dynamics" by Eleuterio F. Toro.
 
         Args:
@@ -181,12 +371,20 @@ class EulerEquations(BaseEquation):
         # --- Wave Speed Estimates (Toro's HLLC, Section 10.3.2) ---
         # Estimate pressure in star region (p_star)
         # This is a simplified estimate, more robust methods exist but this is common.
-        q_L = 1.0 if p_star > pL else np.sqrt(1 + (self.gamma + 1) / (2 * self.gamma) * (p_star / pL - 1))
-        q_R = 1.0 if p_star > pR else np.sqrt(1 + (self.gamma + 1) / (2 * self.gamma) * (p_star / pR - 1))
+        q_L = (
+            1.0
+            if p_star > pL
+            else np.sqrt(1 + (self.gamma + 1) / (2 * self.gamma) * (p_star / pL - 1))
+        )
+        q_R = (
+            1.0
+            if p_star > pR
+            else np.sqrt(1 + (self.gamma + 1) / (2 * self.gamma) * (p_star / pR - 1))
+        )
 
         # Initial guess for p_star (PVRS-like)
         p_pvrs = 0.5 * (pL + pR) + 0.5 * (vnL - vnR) * (rL * aL + rR * aR) / (rL + rR)
-        p_star = max(0.0, p_pvrs) # Ensure non-negative pressure
+        p_star = max(0.0, p_pvrs)  # Ensure non-negative pressure
 
         # Iterative solution for p_star (optional, but more accurate)
         # For simplicity, we'll use the initial guess for now.
@@ -195,7 +393,9 @@ class EulerEquations(BaseEquation):
         # Wave speeds
         SL = vnL - aL * q_L
         SR = vnR + aR * q_R
-        SM = (p_star - pL + rL * vnL * (SL - vnL)) / (rL * (SL - vnL)) # Contact wave speed
+        SM = (p_star - pL + rL * vnL * (SL - vnL)) / (
+            rL * (SL - vnL)
+        )  # Contact wave speed
 
         # --- HLLC Flux Calculation ---
         if 0 <= SL:
@@ -207,8 +407,12 @@ class EulerEquations(BaseEquation):
             r_star_L = rL * (SL - vnL) / (SM - vnL)
             u_star_L = SM * nx + vtL * tx
             v_star_L = SM * ny + vtL * ty
-            E_star_L = r_star_L * ( (EL / rL) + (SM - vnL) * (SM + pL / (rL * (SL - vnL))) )
-            U_star_L = np.array([r_star_L, r_star_L * u_star_L, r_star_L * v_star_L, E_star_L])
+            E_star_L = r_star_L * (
+                (EL / rL) + (SM - vnL) * (SM + pL / (rL * (SL - vnL)))
+            )
+            U_star_L = np.array(
+                [r_star_L, r_star_L * u_star_L, r_star_L * v_star_L, E_star_L]
+            )
 
             F_star_L = self._compute_flux(U_star_L, normal)
             return FL + SL * (U_star_L - U_L)
@@ -218,8 +422,12 @@ class EulerEquations(BaseEquation):
             r_star_R = rR * (SR - vnR) / (SM - vnR)
             u_star_R = SM * nx + vtR * tx
             v_star_R = SM * ny + vtR * ty
-            E_star_R = r_star_R * ( (ER / rR) + (SM - vnR) * (SM + pR / (rR * (SR - vnR))) )
-            U_star_R = np.array([r_star_R, r_star_R * u_star_R, r_star_R * v_star_R, E_star_R])
+            E_star_R = r_star_R * (
+                (ER / rR) + (SM - vnR) * (SM + pR / (rR * (SR - vnR)))
+            )
+            U_star_R = np.array(
+                [r_star_R, r_star_R * u_star_R, r_star_R * v_star_R, E_star_R]
+            )
 
             F_star_R = self._compute_flux(U_star_R, normal)
             return FR + SR * (U_star_R - U_R)
@@ -227,8 +435,9 @@ class EulerEquations(BaseEquation):
             # All waves move to the left
             return FR
 
-    def roe_flux(self, U_L, U_R, normal):
+    def roe_flux_change(self, U_L, U_R, normal):
         """
+        WORKING
         Computes the numerical flux using the Roe approximate Riemann solver.
         Based on "Riemann Solvers and Numerical Methods for Fluid Dynamics" by Eleuterio F. Toro.
 
@@ -257,7 +466,9 @@ class EulerEquations(BaseEquation):
         r_avg = sqrt_rL * sqrt_rR
         u_avg = (sqrt_rL * uL + sqrt_rR * uR) / (sqrt_rL + sqrt_rR)
         v_avg = (sqrt_rL * vL + sqrt_rR * vR) / (sqrt_rL + sqrt_rR)
-        H_avg = (sqrt_rL * (EL + pL) / rL + sqrt_rR * (ER + pR) / rR) / (sqrt_rL + sqrt_rR)
+        H_avg = (sqrt_rL * (EL + pL) / rL + sqrt_rR * (ER + pR) / rR) / (
+            sqrt_rL + sqrt_rR
+        )
         a_avg = np.sqrt((self.gamma - 1) * (H_avg - 0.5 * (u_avg**2 + v_avg**2)))
         vn_avg = u_avg * nx + v_avg * ny
 
@@ -272,8 +483,8 @@ class EulerEquations(BaseEquation):
         delta = 0.1 * a_avg
         for i in range(len(ws)):
             if abs(ws[i]) < delta:
-                ws[i] = (ws[i]**2 + delta**2) / (2 * delta)
-        ws = np.abs(ws) # Use absolute values for dissipation
+                ws[i] = (ws[i] ** 2 + delta**2) / (2 * delta)
+        ws = np.abs(ws)  # Use absolute values for dissipation
 
         # --- Jump in Conservative Variables ---
         dU = U_R - U_L
@@ -282,12 +493,9 @@ class EulerEquations(BaseEquation):
         # These are the columns of the matrix.
         # Based on Toro, Chapter 10, Section 10.2.2
         # R1: (1, u-a*nx, v-a*ny, H-vn*a)
-        R1 = np.array([
-            1,
-            u_avg - a_avg * nx,
-            v_avg - a_avg * ny,
-            H_avg - vn_avg * a_avg
-        ])
+        R1 = np.array(
+            [1, u_avg - a_avg * nx, v_avg - a_avg * ny, H_avg - vn_avg * a_avg]
+        )
 
         # R2: (1, u, v, 0.5*(u^2+v^2)) - (1, u+a*nx, v+a*ny, H+vn*a)
         # This is for the contact discontinuity, related to tangential velocity.
@@ -295,12 +503,7 @@ class EulerEquations(BaseEquation):
         # For 2D, the second and third waves are shear waves.
         # R2 and R3 are related to the tangential components of velocity.
         # R2: (0, -ny, nx, -u*ny + v*nx)
-        R2 = np.array([
-            0,
-            -ny,
-            nx,
-            -u_avg * ny + v_avg * nx
-        ])
+        R2 = np.array([0, -ny, nx, -u_avg * ny + v_avg * nx])
 
         # R3: (0, nx, ny, u*nx + v*ny) - This is not standard for the third wave.
         # The third wave is also a shear wave, orthogonal to the second.
@@ -308,20 +511,12 @@ class EulerEquations(BaseEquation):
         # A common choice for the third eigenvector is related to the pressure/density jump.
         # Let's use a simpler form for the third eigenvector, related to the density jump.
         # R3: (1, u, v, 0.5*(u^2+v^2))
-        R3 = np.array([
-            1,
-            u_avg,
-            v_avg,
-            0.5 * (u_avg**2 + v_avg**2)
-        ])
+        R3 = np.array([1, u_avg, v_avg, 0.5 * (u_avg**2 + v_avg**2)])
 
         # R4: (1, u+a*nx, v+a*ny, H+vn*a)
-        R4 = np.array([
-            1,
-            u_avg + a_avg * nx,
-            v_avg + a_avg * ny,
-            H_avg + vn_avg * a_avg
-        ])
+        R4 = np.array(
+            [1, u_avg + a_avg * nx, v_avg + a_avg * ny, H_avg + vn_avg * a_avg]
+        )
 
         # Assemble the right eigenvector matrix
         Rv = np.column_stack((R1, R2, R3, R4))
@@ -371,7 +566,9 @@ class EulerEquations(BaseEquation):
         except np.linalg.LinAlgError:
             # Fallback to a simpler method or raise error if matrix is singular
             # For now, return HLL flux as a fallback
-            return 0.5 * (FL + FR) - 0.5 * np.abs(vn_avg) * dU # Simple HLL-like fallback
+            return (
+                0.5 * (FL + FR) - 0.5 * np.abs(vn_avg) * dU
+            )  # Simple HLL-like fallback
 
         # --- Roe Flux ---
         # F_roe = 0.5 * (F_L + F_R) - 0.5 * sum(ws_i * alpha_i * R_i)

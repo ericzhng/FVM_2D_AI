@@ -51,7 +51,7 @@ def main():
         equation,
         t_end=t_end,
         limiter_type="minmod",  # Options: 'barth_jespersen', 'minmod', 'superbee'
-        flux_type="hllc",
+        flux_type="roe",
         over_relaxation=1.2,
         use_adaptive_dt=True,
         cfl=0.5,
@@ -63,7 +63,9 @@ def main():
     # --- 4. Visualize ---
     print("Creating animation of the results...")
     create_animation(mesh, history, dt_history, variable_to_plot=variable_to_plot)
-    # plot_simulation_step(mesh, history[-1], "Final State", variable_to_plot=variable_to_plot)
+    plot_simulation_step(
+        mesh, history[-1], "Final State", variable_to_plot=variable_to_plot
+    )
 
 
 if __name__ == "__main__":

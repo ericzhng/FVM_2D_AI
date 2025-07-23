@@ -60,7 +60,7 @@ def solve(
     n = 0
     dt_history = []
     dt = dt_initial
-    time_integration_method = "rk2"  # Choose between "euler" and "rk2"
+    time_integration_method = "euler"  # Choose between "euler" and "rk2"
 
     # Initial plot of the solution
     plot_simulation_step(
