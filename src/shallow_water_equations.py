@@ -4,53 +4,302 @@ from src.time_step import calculate_adaptive_dt
 
 
 class ShallowWaterEquations(BaseEquation):
+    """
+    Represents the 2D Shallow Water Equations for incompressible fluid flow with a free surface.
+
+    This class provides the specific implementation for the Shallow Water Equations,
+    including the conversion between conservative and primitive variables,
+    flux calculation (HLLC and Roe), and wave speed estimation.
+
+    Attributes:
+        g (float): The acceleration due to gravity.
+    """
+
     def __init__(self, g=9.81):
+        """
+        Initializes the ShallowWaterEquations object.
+
+        Args:
+            g (float, optional): The acceleration due to gravity. Defaults to 9.81 m/s^2.
+        """
         self.g = g
 
     def _cons_to_prim(self, U):
+        """
+        Converts a single conservative state vector to primitive variables.
+
+        Args:
+            U (np.ndarray): Conservative state vector [h, hu, hv].
+                            h: water depth
+                            hu: momentum in x-direction
+                            hv: momentum in y-direction
+
+        Returns:
+            np.ndarray: Primitive state vector [h, u, v].
+                        h: water depth
+                        u: velocity in x-direction
+                        v: velocity in y-direction
+        """
         h, hu, hv = U
-        u = hu / h if h > 1e-6 else 0
-        v = hv / h if h > 1e-6 else 0
+        # Ensure h is not too small to prevent division by zero or very large velocities
+        h = max(h, 1e-8)
+        u = hu / h
+        v = hv / h
         return np.array([h, u, v])
 
+    def _prim_to_cons(self, P):
+        """
+        Converts a single primitive state vector to conservative variables.
+
+        Args:
+            P (np.ndarray): Primitive state vector [h, u, v].
+
+        Returns:
+            np.ndarray: Conservative state vector [h, hu, hv].
+        """
+        h, u, v = P
+        hu = h * u
+        hv = h * v
+        return np.array([h, hu, hv])
+
     def _compute_flux(self, U, normal):
+        """
+        Calculates the physical flux across a face with a given normal.
+
+        Args:
+            U (np.ndarray): Conservative state vector [h, hu, hv].
+            normal (np.ndarray): Normal vector of the face.
+
+        Returns:
+            np.ndarray: The flux vector normal to the face.
+        """
         h, hu, hv = U
-        h_q, u, v = self._cons_to_prim(U)
-        un = u * normal[0] + v * normal[1]
-        return np.array(
+        u, v = hu / h, hv / h  # Primitive velocities
+        un = u * normal[0] + v * normal[1]  # Normal velocity component
+
+        # Flux components for Shallow Water Equations
+        F = np.array(
             [
                 h * un,
                 hu * un + 0.5 * self.g * h**2 * normal[0],
                 hv * un + 0.5 * self.g * h**2 * normal[1],
             ]
         )
+        return F
 
-    def _compute_wave_speed(self, U, normal):
-        h = U[0]
-        c = np.sqrt(self.g * h)
-        return c
+    def max_eigenvalue(self, U):
+        """
+        Calculates the maximum wave speed (eigenvalue) for a cell.
+        This is used for determining the stable time step (CFL condition).
 
-    def max_eigenvalue(self, U_cell):
-        h = U_cell[0]
-        hu = U_cell[1]
-        hv = U_cell[2]
-        u = hu / h if h > 1e-6 else 0
-        v = hv / h if h > 1e-6 else 0
-        c = np.sqrt(self.g * h) if h > 0 else 0
+        Args:
+            U (np.ndarray): Conservative state vector [h, hu, hv].
+
+        Returns:
+            float: The maximum absolute eigenvalue.
+        """
+        h, u, v = self._cons_to_prim(U)
+        # Ensure h is non-negative for sqrt
+        c = np.sqrt(self.g * max(0, h))
+        # Max eigenvalue = |velocity| + c
         return np.sqrt(u**2 + v**2) + c
 
     def _apply_wall_bc(self, U_inside, normal):
-        h, hu, hv = U_inside
-        u = hu / h if h > 1e-6 else 0
-        v = hv / h if h > 1e-6 else 0
+        """
+        Applies a solid wall (reflective) boundary condition.
 
-        un = u * normal[0] + v * normal[1]
-        ut = u * -normal[1] + v * normal[0]
+        This condition reflects the velocity normal to the wall while keeping the
+        tangential velocity and water depth the same.
 
-        un_ghost = -un
-        ut_ghost = ut
+        Args:
+            U_inside (np.ndarray): State vector of the interior cell.
+            normal (np.ndarray): Normal vector of the boundary face.
 
-        u_ghost = un_ghost * normal[0] - ut_ghost * normal[1]
-        v_ghost = un_ghost * normal[1] + ut_ghost * normal[0]
+        Returns:
+            np.ndarray: The state vector of the ghost cell.
+        """
+        h, u, v = self._cons_to_prim(U_inside)
 
-        return np.array([h, h * u_ghost, h * v_ghost])
+        # Decompose velocity into normal and tangential components
+        vn = u * normal[0] + v * normal[1]
+        vt = u * -normal[1] + v * normal[0]
+
+        # Reflect the normal velocity, keep tangential velocity
+        vn_ghost = -vn
+        vt_ghost = vt
+
+        # Recompose the ghost velocity vector from the new normal and tangential components
+        u_ghost = vn_ghost * normal[0] - vt_ghost * normal[1]
+        v_ghost = vn_ghost * normal[1] + vt_ghost * normal[0]
+
+        # Create the primitive state for the ghost cell
+        P_ghost = np.array([h, u_ghost, v_ghost])
+
+        # Convert back to conservative variables
+        return self._prim_to_cons(P_ghost)
+
+    def hllc_flux(self, U_L, U_R, normal):
+        """
+        Computes the numerical flux using the HLLC (Harten-Lax-van Leer-Contact) Riemann solver
+        for the 2D Shallow Water Equations.
+
+        Based on "Riemann Solvers and Numerical Methods for Fluid Dynamics" by Eleuterio F. Toro,
+        adapted for Shallow Water Equations.
+
+        Args:
+            U_L (np.ndarray): Conservative state vector of the left cell [h, hu, hv].
+            U_R (np.ndarray): Conservative state vector of the right cell [h, hu, hv].
+            normal (np.ndarray): Normal vector of the face (nx, ny).
+
+        Returns:
+            np.ndarray: The HLLC numerical flux across the face.
+        """
+        nx, ny = normal
+        # Tangent vector (rotated 90 degrees clockwise from normal)
+        tx, ty = ny, -nx
+
+        # --- Left State ---
+        hL, uL, vL = self._cons_to_prim(U_L)
+        vnL = uL * nx + vL * ny  # Normal velocity
+        vtL = uL * tx + vL * ty  # Tangential velocity
+        cL = np.sqrt(self.g * max(1e-6, hL))  # Wave speed (celerity)
+        FL = self._compute_flux(U_L, normal)
+
+        # --- Right State ---
+        hR, uR, vR = self._cons_to_prim(U_R)
+        vnR = uR * nx + vR * ny  # Normal velocity
+        vtR = uR * tx + vR * ty  # Tangential velocity
+        cR = np.sqrt(self.g * max(1e-6, hR))  # Wave speed (celerity)
+        FR = self._compute_flux(U_R, normal)
+
+        # --- Roe Averages (for wave speed estimates) ---
+        # Roe-averaged density
+        h_roe = np.sqrt(hL * hR)
+        sqrt_hL = np.sqrt(hL)
+        sqrt_hR = np.sqrt(hR)
+        # Roe-averaged velocities
+        u_roe = (sqrt_hL * uL + sqrt_hR * uR) / (sqrt_hL + sqrt_hR)
+        v_roe = (sqrt_hL * vL + sqrt_hR * vR) / (sqrt_hL + sqrt_hR)
+        # Roe-averaged normal velocity
+        vn_roe = u_roe * nx + v_roe * ny
+        # Roe-averaged speed of sound
+        c_roe = np.sqrt(self.g * (hL + hR) / 2)  # Simpler Roe average for celerity
+
+        # --- Wave Speed Estimates (Toro's HLLC, Section 10.3.2 adapted for SWE) ---
+        # Estimate pressure in star region (p_star) - for SWE, this is related to h_star
+        # Using a simplified estimate for the star region velocity (u_star)
+        u_star = (vnL * sqrt_hL + vnR * sqrt_hR + 2 * (cL - cR)) / (sqrt_hL + sqrt_hR)
+
+        # Wave speeds
+        SL = min(vnL - cL, u_star - c_roe)
+        SR = max(vnR + cR, u_star + c_roe)
+        SM = u_star  # Contact wave speed is the star region velocity
+
+        # --- HLLC Flux Calculation ---
+        if 0 <= SL:
+            # All waves move to the right
+            return FL
+        elif SL < 0 <= SM:
+            # Left-going shock/rarefaction, contact wave to the right
+            # U_star_L state
+            h_star_L = hL * (SL - vnL) / (SM - vnL)
+            hu_star_L = h_star_L * (SM * nx + vtL * tx)
+            hv_star_L = h_star_L * (SM * ny + vtL * ty)
+            U_star_L = np.array([h_star_L, hu_star_L, hv_star_L])
+
+            return FL + SL * (U_star_L - U_L)
+        elif SM < 0 < SR:
+            # Contact wave to the left, right-going shock/rarefaction
+            # U_star_R state
+            h_star_R = hR * (SR - vnR) / (SM - vnR)
+            hu_star_R = h_star_R * (SM * nx + vtR * tx)
+            hv_star_R = h_star_R * (SM * ny + vtR * ty)
+            U_star_R = np.array([h_star_R, hu_star_R, hv_star_R])
+
+            return FR + SR * (U_star_R - U_R)
+        else:  # SR <= 0
+            # All waves move to the left
+            return FR
+
+    def roe_flux(self, U_L, U_R, normal):
+        """
+        Computes the numerical flux using the Roe approximate Riemann solver
+        for the 2D Shallow Water Equations.
+
+        Based on "Riemann Solvers and Numerical Methods for Fluid Dynamics" by Eleuterio F. Toro,
+        adapted for Shallow Water Equations.
+
+        Args:
+            U_L (np.ndarray): Conservative state vector of the left cell [h, hu, hv].
+            U_R (np.ndarray): Conservative state vector of the right cell [h, hu, hv].
+            normal (np.ndarray): Normal vector of the face (nx, ny).
+
+        Returns:
+            np.ndarray: The Roe numerical flux across the face.
+        """
+        nx, ny = normal
+
+        # --- Left and Right States ---
+        hL, uL, vL = self._cons_to_prim(U_L)
+        FL = self._compute_flux(U_L, normal)
+
+        hR, uR, vR = self._cons_to_prim(U_R)
+        FR = self._compute_flux(U_R, normal)
+
+        # --- Roe Averages ---
+        sqrt_hL = np.sqrt(hL)
+        sqrt_hR = np.sqrt(hR)
+
+        h_avg = sqrt_hL * sqrt_hR
+        u_avg = (sqrt_hL * uL + sqrt_hR * uR) / (sqrt_hL + sqrt_hR)
+        v_avg = (sqrt_hL * vL + sqrt_hR * vR) / (sqrt_hL + sqrt_hR)
+        c_avg = np.sqrt(self.g * h_avg)
+        vn_avg = u_avg * nx + v_avg * ny
+
+        # --- Eigenvalues (Wave Speeds) ---
+        lambda1 = vn_avg - c_avg
+        lambda2 = vn_avg
+        lambda3 = vn_avg
+        lambda4 = vn_avg + c_avg  # This is for Euler, SWE only has 3 waves
+        ws = np.array([lambda1, lambda2, lambda3])  # SWE has 3 waves
+
+        # --- Entropy Fix (Harten's entropy fix) ---
+        delta = 0.1 * c_avg
+        for i in range(len(ws)):
+            if abs(ws[i]) < delta:
+                ws[i] = (ws[i] ** 2 + delta**2) / (2 * delta)
+        ws = np.abs(ws)  # Use absolute values for dissipation
+
+        # --- Jump in Conservative Variables ---
+        dU = U_R - U_L
+
+        # --- Right Eigenvectors (Roe matrix for 2D Shallow Water) ---
+        # Based on Toro, Chapter 13, Section 13.3.2 (for 1D, extended to 2D)
+        # R1: (1, u-c, v) - for 1D, need to project to normal/tangential
+        R1 = np.array([1, u_avg - c_avg * nx, v_avg - c_avg * ny])
+
+        # R2: (0, -ny, nx) - tangential wave
+        R2 = np.array([0, -ny, nx])
+
+        # R3: (1, u+c, v) - for 1D, need to project to normal/tangential
+        R3 = np.array([1, u_avg + c_avg * nx, v_avg + c_avg * ny])
+
+        # Assemble the right eigenvector matrix
+        Rv = np.column_stack((R1, R2, R3))
+
+        # --- Wave Strengths (alpha_k = L_k . dU) ---
+        try:
+            alpha = np.linalg.solve(Rv, dU)
+        except np.linalg.LinAlgError:
+            # Fallback to HLL flux if matrix is singular
+            return 0.5 * (FL + FR) - 0.5 * np.abs(vn_avg) * dU
+
+        # --- Roe Flux ---
+        # F_roe = 0.5 * (F_L + F_R) - 0.5 * sum(ws_i * alpha_i * R_i)
+        dissipation = np.zeros_like(dU)
+        for i in range(len(ws)):
+            dissipation += ws[i] * alpha[i] * Rv[:, i]
+
+        roe_flux = 0.5 * (FL + FR - dissipation)
+
+        return roe_flux

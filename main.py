@@ -27,12 +27,12 @@ def main():
 
     # --- 2. Set Up Case ---
     print("Setting up the simulation case...")
-    equation_type = "euler"  # Choose 'shallow_water' or 'euler'
+    equation_type = "shallow_water"  # Choose 'shallow_water' or 'euler'
 
     if equation_type == "shallow_water":
         U_init, boundary_conditions = setup_case_shallow_water(mesh)
         equation = ShallowWaterEquations(g=9.81)
-        t_end = 100.0
+        t_end = 0.04
         variable_to_plot = 0  # Plot water height
     elif equation_type == "euler":
         U_init, boundary_conditions = setup_case_euler(mesh)

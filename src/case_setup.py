@@ -4,19 +4,62 @@ from src.mesh import Mesh
 
 def setup_case_shallow_water(mesh: Mesh):
     """
-    Sets up the initial conditions for the simulation.
+    Sets up the initial conditions for a 2D Riemann problem for the Shallow Water Equations.
+    The domain is split into four quadrants, each with a different initial state,
+    based on the cell center coordinates (x, y).
     """
-    U = np.zeros((mesh.nelem, 3))  # [h, hu, hv]
-    for i in range(mesh.nelem):
-        U[i, 0] = 5.0  # Water height (h)
-        U[i, 1] = 10.0  # Momentum in x (hu)
-        U[i, 2] = 10.0  # Momentum in y (hv)
+    # Define primitive variables for the four regions (h, u, v)
+    # These values are illustrative and can be adjusted for specific test cases.
+    h_vals = np.array([2.0, 1.0, 1.5, 0.5])  # Water height
+    u_vals = np.array([0.0, 0.5, -0.5, 0.0]) # Velocity in x-direction
+    v_vals = np.array([0.0, 0.0, 0.0, 0.5])  # Velocity in y-direction
 
+    # Get cell centroid coordinates
+    x = mesh.cell_centroids[:, 0]
+    y = mesh.cell_centroids[:, 1]
+
+    # Create boolean masks for each quadrant (assuming a domain from 0 to 1 in x and y)
+    reg1 = (x >= 0.5) & (y >= 0.5)  # Top-right
+    reg2 = (x < 0.5) & (y >= 0.5)  # Top-left
+    reg3 = (x < 0.5) & (y < 0.5)  # Bottom-left
+    reg4 = (x >= 0.5) & (y < 0.5)  # Bottom-right
+
+    # Initialize arrays for primitive variables for all cells
+    h = np.zeros(mesh.nelem)
+    u = np.zeros(mesh.nelem)
+    v = np.zeros(mesh.nelem)
+
+    # Assign values based on regions
+    h[reg1] = h_vals[0]
+    u[reg1] = u_vals[0]
+    v[reg1] = v_vals[0]
+
+    h[reg2] = h_vals[1]
+    u[reg2] = u_vals[1]
+    v[reg2] = v_vals[1]
+
+    h[reg3] = h_vals[2]
+    u[reg3] = u_vals[2]
+    v[reg3] = v_vals[2]
+
+    h[reg4] = h_vals[3]
+    u[reg4] = u_vals[3]
+    v[reg4] = v_vals[3]
+
+    # Convert primitive variables to conservative variables [h, hu, hv]
+    hu = h * u
+    hv = h * v
+
+    # Assemble the state vector U = [h, hu, hv]
+    U = np.vstack([h, hu, hv]).T
+
+    # Define boundary conditions - using transmissive (outlet) for all boundaries
+    # is common for this type of Riemann problem to allow waves to exit the domain.
     boundary_conditions = {
-        "top": {"type": "wall"},
-        "bottom": {"type": "wall"},
-        "left": {"type": "inlet", "value": np.array([5.0, 10.0, 0.0])},  # [h, hu, hv]
-        "right": {"type": "outlet", "value": np.array([5.0, 10.0, 0.0])},
+        "top": {"type": "outlet"},
+        "bottom": {"type": "outlet"},
+        "left": {"type": "outlet"},
+        "right": {"type": "outlet"},
     }
 
     return U, boundary_conditions
