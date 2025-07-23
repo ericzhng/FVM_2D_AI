@@ -1,8 +1,8 @@
 import numpy as np
 from src.mesh import Mesh
 from src.time_step import calculate_adaptive_dt
-from src.reconstruction import reconst_func
 from src.visualization import plot_simulation_step
+from src.reconstruction import compute_residual
 
 
 def solve(
