@@ -2,7 +2,10 @@ import gmsh
 import sys
 import os
 
-def create_and_mesh_rectangle(length, height, nx, ny, filename="data/rectangle_mesh.msh"):
+
+def create_and_mesh_rectangle(
+    length, height, nx, ny, filename="data/rectangle_mesh.msh"
+):
     """
     Creates a rectangle and meshes it with a structured grid of quadrilateral elements.
 
@@ -16,7 +19,7 @@ def create_and_mesh_rectangle(length, height, nx, ny, filename="data/rectangle_m
         ny (int): The number of elements along the height (y-axis).
         filename (str): The path to save the output .msh file.
     """
-    
+
     output_dir = os.path.dirname(filename)
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -90,7 +93,5 @@ if __name__ == "__main__":
         f"Creating a structured mesh of size {rect_length}x{rect_height} "
         f"with {num_elements_x}x{num_elements_y} elements."
     )
-    create_and_mesh_rectangle(
-        rect_length, rect_height, num_elements_x, num_elements_y
-    )
+    create_and_mesh_rectangle(rect_length, rect_height, num_elements_x, num_elements_y)
     print("\nScript finished.")
