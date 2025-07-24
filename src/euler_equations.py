@@ -138,11 +138,9 @@ class EulerEquations:
         # Convert back to conservative variables
         return self._prim_to_cons(P_ghost)
 
-    def apply_boundary_condition(self, U_inside, normal, bc_info):
+    def apply_boundary_condition(self, U_inside, normal, bc_type):
         # Numba jitclass methods cannot access dictionaries easily.
         # The logic is simplified to handle bc_type as a string directly.
-        bc_type = bc_info.get("type", "wall")
-
         if bc_type == "wall":
             return self._apply_wall_bc(U_inside, normal)
         elif bc_type == "outlet":

@@ -260,9 +260,7 @@ def compute_residual_flux_loop(
                     if name == bc_name:
                         bc_type = bc_types[k]
                         break
-                U_R = equation.apply_boundary_condition(
-                    U_L, face_normal, {"type": bc_type}
-                )
+                U_R = equation.apply_boundary_condition(U_L, face_normal, bc_type)
 
             # --- Numerical Flux Calculation ---
             # The numerical flux is computed using the specified Riemann solver.
