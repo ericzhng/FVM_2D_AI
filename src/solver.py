@@ -62,11 +62,6 @@ def solve(
     dt = dt_initial
     time_integration_method = "euler"  # Choose between "euler" and "rk2"
 
-    # Initial plot of the solution
-    plot_simulation_step(
-        mesh, equation.cons_to_prim_batch(U), f"t={t:.4f}", variable_to_plot
-    )
-
     while t < t_end:
         # --- Adaptive Time-Stepping ---
         if use_adaptive_dt:

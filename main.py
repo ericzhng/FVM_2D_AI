@@ -20,14 +20,14 @@ def main():
     # --- 1. Initialize and Read Mesh ---
     print("Initializing and reading mesh...")
     mesh = Mesh()
-    mesh.read_mesh("data/rectangle_mesh.msh")
+    mesh.read_mesh("data/euler_mesh.msh")
     mesh.analyze_mesh()
     mesh.summary()
     # plot_mesh(mesh)  # Optional: Uncomment to visualize the mesh and check normals
 
     # --- 2. Set Up Case ---
     print("Setting up the simulation case...")
-    equation_type = "shallow_water"  # Choose 'shallow_water' or 'euler'
+    equation_type = "euler"  # Choose 'shallow_water' or 'euler'
 
     if equation_type == "shallow_water":
         U_init, boundary_conditions = setup_case_shallow_water(mesh)
@@ -42,6 +42,11 @@ def main():
     else:
         raise ValueError("Invalid equation type specified.")
 
+    # # Initial plot of the solution
+    # plot_simulation_step(
+    #     mesh, equation.cons_to_prim_batch(U_init), f"t={0:.1f} s", variable_to_plot
+    # )
+
     # --- 3. Solve ---
     print("Starting the FVM solver...")
     history, dt_history = solve(
@@ -51,8 +56,8 @@ def main():
         equation,
         t_end=t_end,
         limiter_type="minmod",  # Options: 'barth_jespersen', 'minmod', 'superbee'
-        flux_type="roe",
-        over_relaxation=1.2,
+        flux_type="hllc",
+        over_relaxation=1.0,
         use_adaptive_dt=True,
         cfl=0.5,
         dt_initial=1e-2,
@@ -63,9 +68,9 @@ def main():
     # --- 4. Visualize ---
     print("Creating animation of the results...")
     create_animation(mesh, history, dt_history, variable_to_plot=variable_to_plot)
-    plot_simulation_step(
-        mesh, history[-1], "Final State", variable_to_plot=variable_to_plot
-    )
+    # plot_simulation_step(
+    #     mesh, history[-1], "Final State", variable_to_plot=variable_to_plot
+    # )
 
 
 if __name__ == "__main__":

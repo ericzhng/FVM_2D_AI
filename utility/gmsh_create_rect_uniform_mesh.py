@@ -93,5 +93,11 @@ if __name__ == "__main__":
         f"Creating a structured mesh of size {rect_length}x{rect_height} "
         f"with {num_elements_x}x{num_elements_y} elements."
     )
-    create_and_mesh_rectangle(rect_length, rect_height, num_elements_x, num_elements_y)
+    create_and_mesh_rectangle(
+        rect_length,
+        rect_height,
+        num_elements_x,
+        num_elements_y,
+        filename="data/euler_mesh.msh",
+    )
     print("\nScript finished.")

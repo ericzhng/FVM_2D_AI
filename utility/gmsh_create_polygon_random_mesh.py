@@ -86,11 +86,11 @@ if __name__ == "__main__":
     ]
 
     # 2. Define the output path
-    output_file = "./data/complex_shape_mesh.msh"
+    output_file = "./data/random_shape_mesh.msh"
 
     # 3. Set mesh parameters
     # This will now create a mesh with edge lengths very close to 0.1.
-    target_edge_length = 1
+    target_edge_length = 0.2
     selected_algorithm = "meshadapt"
 
     # 4. Generate the mesh
