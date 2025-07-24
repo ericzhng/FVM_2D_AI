@@ -9,13 +9,16 @@ from src.euler_equations import EulerEquations  # Import the jitclass
 def barth_jespersen_limiter(r):
     return min(1.0, r)
 
+
 @njit
 def minmod_limiter(r):
     return max(0.0, min(1.0, r))
 
+
 @njit
 def superbee_limiter(r):
     return max(0.0, max(min(2.0 * r, 1.0), min(r, 2.0)))
+
 
 LIMITERS = {
     "barth_jespersen": barth_jespersen_limiter,
@@ -24,6 +27,7 @@ LIMITERS = {
 }
 
 # --- Parallelized Core Functions ---
+
 
 @njit(parallel=True)
 def compute_gradients_gaussian(
@@ -54,17 +58,15 @@ def compute_gradients_gaussian(
     Returns:
         np.ndarray: The gradients of the state variables at each cell centroid.
     """
-    nvars = U.shape[1]
-    gradients = np.zeros((mesh.nelem, nvars, 2))  # For 2D gradients (x, y)
-
-    for i in range(mesh.nelem):
+    gradients = np.zeros((nelem, nvars, 2))
+    for i in prange(nelem):
         grad_sum = np.zeros((nvars, 2))
-        for j, neighbor_idx in enumerate(mesh.cell_neighbors[i]):
-            face_normal = mesh.face_normals[i, j]
-            face_area = mesh.face_areas[i, j]
+        for j, neighbor_idx in enumerate(cell_neighbors[i]):
+            face_normal = face_normals[i, j]
+            face_area = face_areas[i, j]
 
             if neighbor_idx != -1:
-                d_i, d_j = mesh.face_to_cell_distances[i, j]
+                d_i, d_j = face_to_cell_distances[i, j]
 
                 if d_i + d_j > 1e-9:
                     w_i = d_j / (d_i + d_j)
@@ -75,7 +77,7 @@ def compute_gradients_gaussian(
                     U_face = 0.5 * (U[i] + U[neighbor_idx])
 
                 # Non-orthogonal correction for unstructured meshes
-                d = mesh.cell_centroids[neighbor_idx] - mesh.cell_centroids[i]
+                d = cell_centroids[neighbor_idx] - cell_centroids[i]
                 if np.linalg.norm(d) > 1e-9:
                     e = d / np.linalg.norm(d)
                     k = face_normal / np.linalg.norm(face_normal)
@@ -96,13 +98,23 @@ def compute_gradients_gaussian(
             grad_sum[:, 0] += U_face * face_normal[0] * face_area
             grad_sum[:, 1] += U_face * face_normal[1] * face_area
 
-        if mesh.cell_volumes[i] > 1e-9:
-            gradients[i] = grad_sum / mesh.cell_volumes[i]
+        if cell_volumes[i] > 1e-9:
+            gradients[i] = grad_sum / cell_volumes[i]
 
     return gradients
 
 
-def compute_limiters(mesh: Mesh, U, gradients, limiter_type="barth_jespersen"):
+@njit(parallel=True)
+def compute_limiters(
+    nelem,
+    nvars,
+    cell_neighbors,
+    face_midpoints,
+    cell_centroids,
+    U,
+    gradients,
+    limiter_func,
+):
     """
     Computes the slope limiter for each cell to ensure monotonicity.
 
@@ -119,20 +131,18 @@ def compute_limiters(mesh: Mesh, U, gradients, limiter_type="barth_jespersen"):
     Returns:
         np.ndarray: The limiter values (phi) for each cell and variable.
     """
-    nvars = U.shape[1]
-    limiter_func = LIMITERS.get(limiter_type, barth_jespersen_limiter)
-    limiters = np.ones((mesh.nelem, nvars))
-
-    for i in range(mesh.nelem):
-        cell_neighbors = mesh.cell_neighbors[i]
-        nfaces = cell_neighbors.shape[0]
+    limiters = np.ones((nelem, nvars))
+    limiter_func = barth_jespersen_limiter
+    for i in prange(nelem):
+        neighbors = cell_neighbors[i]
+        nfaces = neighbors.shape[0]
         U_i = U[i]
         grad_i = gradients[i]
 
         # Determine the max and min values among the cell and its neighbors
         U_max = U_i.copy()
         U_min = U_i.copy()
-        for neighbor_idx in cell_neighbors:
+        for neighbor_idx in neighbors:
             if neighbor_idx != -1:
                 U_neighbor = U[neighbor_idx]
                 U_max = np.maximum(U_max, U_neighbor)
@@ -140,8 +150,8 @@ def compute_limiters(mesh: Mesh, U, gradients, limiter_type="barth_jespersen"):
 
         # Check against extrapolated values at face midpoints
         for j in range(nfaces):
-            face_midpoint = mesh.face_midpoints[i, j]
-            r_if = face_midpoint - mesh.cell_centroids[i]
+            face_midpoint = face_midpoints[i, j]
+            r_if = face_midpoint - cell_centroids[i]
 
             # Extrapolate value to the face midpoint
             U_face_extrap = U_i + np.array(
@@ -161,15 +171,27 @@ def compute_limiters(mesh: Mesh, U, gradients, limiter_type="barth_jespersen"):
     return limiters
 
 
-def compute_residual(
-    mesh: Mesh,
-    U: np.ndarray,
+@njit(parallel=True)
+def compute_residual_flux_loop(
+    nelem,
+    nvars,
+    cell_neighbors,
+    face_normals,
+    face_areas,
+    face_midpoints,
+    cell_centroids,
+    cell_volumes,
+    elem_faces,
+    boundary_face_keys,
+    boundary_face_names,
+    U,
+    gradients,
+    limiters,
     equation,
-    boundary_conditions: dict,
-    limiter_type: str,
-    flux_type: str,
-    over_relaxation: float = 1.2,
-) -> np.ndarray:
+    flux_type,
+    bc_names,
+    bc_types,
+):
     """
     Computes the residual for the finite volume discretization.
 
@@ -198,68 +220,137 @@ def compute_residual(
     Returns:
         np.ndarray: The residual array for all cells.
     """
-    nvars = U.shape[1]
-
-    # --- 1. Gradient Computation ---
-    # Gradients are computed at cell centroids and used for second-order reconstruction.
-    gradients = compute_gradients_gaussian(mesh, U, over_relaxation)
-
-    # --- 2. Slope Limiting ---
-    # Limiters are applied to the gradients to ensure monotonicity and prevent oscillations.
-    limiters = compute_limiters(mesh, U, gradients, limiter_type=limiter_type)
-
-    # Initialize residual array
-    residual = np.zeros_like(U)
-
-    # --- 3. Flux Integration Loop ---
-    # This loop iterates through each cell, calculates the fluxes on its faces,
-    # and aggregates them to compute the residual for that cell.
-    for i in range(mesh.nelem):
+    residual = np.zeros((nelem, nvars))
+    for i in prange(nelem):
         flux_sum = np.zeros(nvars)
-        for j, neighbor_idx in enumerate(mesh.cell_neighbors[i]):
-            face_normal = mesh.face_normals[i, j, 0:2]
-            face_area = mesh.face_areas[i, j]
-            face_midpoint = mesh.face_midpoints[i, j]
+        for j, neighbor_idx in enumerate(cell_neighbors[i]):
+            face_normal = face_normals[i, j, 0:2]
+            face_area = face_areas[i, j]
+            face_midpoint = face_midpoints[i, j]
 
-            # --- 3.1. MUSCL Reconstruction ---
+            # --- MUSCL Reconstruction ---
             # Reconstruct the state variables at the "left" side of the face (inside the current cell).
-            r_i = face_midpoint - mesh.cell_centroids[i]
-            delta_U_i = np.array([np.dot(gradients[i, k], r_i[:2]) for k in range(nvars)])
+            r_i = face_midpoint - cell_centroids[i]
+            delta_U_i = np.zeros(nvars)
+            for k in range(nvars):
+                delta_U_i[k] = np.dot(gradients[i, k], r_i[:2])
             U_L = U[i] + limiters[i] * delta_U_i
 
             if neighbor_idx != -1:
                 # --- Interior Face ---
                 # Reconstruct the state variables at the "right" side of the face (inside the neighbor cell).
-                r_j = face_midpoint - mesh.cell_centroids[neighbor_idx]
-                delta_U_j = np.array(
-                    [np.dot(gradients[neighbor_idx, k], r_j[:2]) for k in range(nvars)]
-                )
+                r_j = face_midpoint - cell_centroids[neighbor_idx]
+                delta_U_j = np.zeros(nvars)
+                for k in range(nvars):
+                    delta_U_j[k] = np.dot(gradients[neighbor_idx, k], r_j[:2])
                 U_R = U[neighbor_idx] + limiters[neighbor_idx] * delta_U_j
-
             else:
                 # --- Boundary Face ---
                 # For boundary faces, the "right" state is determined by the boundary condition.
                 # This ensures a consistent second-order treatment at the boundaries.
-                face_tuple = tuple(sorted(mesh.elem_faces[i][j]))
-                bc_name = mesh.boundary_faces.get(face_tuple, {}).get("name", "wall")
-                bc_info = boundary_conditions.get(bc_name, {"type": "wall"})
-                U_R = equation.apply_boundary_condition(U_L, face_normal, bc_info)
+                face_tuple = tuple(sorted(elem_faces[i][j]))
+                bc_name = "wall"
+                for k, bf_key in enumerate(boundary_face_keys):
+                    if bf_key == face_tuple:
+                        bc_name = boundary_face_names[k]
+                        break
 
-            # --- 3.2. Numerical Flux Calculation ---
+                bc_type = "wall"
+                for k, name in enumerate(bc_names):
+                    if name == bc_name:
+                        bc_type = bc_types[k]
+                        break
+                U_R = equation.apply_boundary_condition(
+                    U_L, face_normal, {"type": bc_type}
+                )
+
+            # --- Numerical Flux Calculation ---
             # The numerical flux is computed using the specified Riemann solver.
-            if flux_type == "roe":
+            if flux_type == 0:  # Roe
                 flux = equation.roe_flux(U_L, U_R, face_normal)
-            elif flux_type == "hllc":
+            else:  # HLLC
                 flux = equation.hllc_flux(U_L, U_R, face_normal)
-            else:
-                raise ValueError(f"Unknown flux type: {flux_type}")
 
             flux_sum += flux * face_area
 
-        # --- 4. Residual Calculation ---
+        # --- Residual Calculation ---
         # The residual is the sum of fluxes divided by the cell volume.
         # R(U_i) = (1/V_i) * sum(F_j * A_j)
-        if mesh.cell_volumes[i] > 1e-12:
-            residual[i] = flux_sum / mesh.cell_volumes[i]
+        if cell_volumes[i] > 1e-12:
+            residual[i] = flux_sum / cell_volumes[i]
+
+    return residual
+
+
+def compute_residual(
+    mesh: Mesh,
+    U: np.ndarray,
+    equation,
+    boundary_conditions: dict,
+    limiter_type: str,
+    flux_type: str,
+    over_relaxation: float = 1.2,
+) -> np.ndarray:
+    nvars = U.shape[1]
+
+    # --- 1. Gradient Computation ---
+    # Gradients are computed at cell centroids and used for second-order reconstruction.
+    gradients = compute_gradients_gaussian(
+        mesh.nelem,
+        nvars,
+        mesh.cell_neighbors,
+        mesh.face_normals,
+        mesh.face_areas,
+        mesh.cell_centroids,
+        mesh.cell_volumes,
+        mesh.face_to_cell_distances,
+        U,
+        over_relaxation,
+    )
+
+    # --- 2. Slope Limiting ---
+    # Limiters are applied to the gradients to ensure monotonicity and prevent oscillations.
+    limiter_func = LIMITERS.get(limiter_type, barth_jespersen_limiter)
+    limiters = compute_limiters(
+        mesh.nelem,
+        nvars,
+        mesh.cell_neighbors,
+        mesh.face_midpoints,
+        mesh.cell_centroids,
+        U,
+        gradients,
+        limiter_func,
+    )
+
+    # Prepare Numba-compatible boundary data
+    boundary_face_keys = list(mesh.boundary_faces.keys())
+    boundary_face_names = [v["name"] for v in mesh.boundary_faces.values()]
+    bc_names = list(boundary_conditions.keys())
+    bc_types = [v["type"] for v in boundary_conditions.values()]
+    flux_type_code = 0 if flux_type == "roe" else 1
+
+    # --- 3. Flux Integration Loop ---
+    # This loop iterates through each cell, calculates the fluxes on its faces,
+    # and aggregates them to compute the residual for that cell.
+    residual = compute_residual_flux_loop(
+        mesh.nelem,
+        nvars,
+        mesh.cell_neighbors,
+        mesh.face_normals,
+        mesh.face_areas,
+        mesh.face_midpoints,
+        mesh.cell_centroids,
+        mesh.cell_volumes,
+        mesh.elem_faces,
+        boundary_face_keys,
+        boundary_face_names,
+        U,
+        gradients,
+        limiters,
+        equation,
+        flux_type_code,
+        bc_names,
+        bc_types,
+    )
 
     return residual

@@ -1,6 +1,7 @@
 import numpy as np
-from numba import jitclass, float64
 from src.base_equation import BaseEquation
+from numba import float64
+from numba.experimental import jitclass
 
 spec = [
     ("gamma", float64),
