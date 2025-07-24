@@ -11,17 +11,14 @@ def solve(
     mesh: Mesh,
     U,
     boundary_conditions,
-    equation_name,
+    equation,
     t_end,
-    gamma=1.4,
-    g=9.81,
     limiter_type="barth_jespersen",
     flux_type="roe",
     over_relaxation=1.2,
     use_adaptive_dt=True,
     cfl=0.5,
     dt_initial=0.01,
-    variable_to_plot=0,
 ):
     """
     Main solver loop for the Finite Volume Method.
@@ -65,14 +62,6 @@ def solve(
     dt_history = []
     dt = dt_initial
     time_integration_method = "euler"
-
-    # Instantiate the appropriate JIT-compiled equation class
-    if equation_name == "euler":
-        equation = EulerEquations(gamma)
-    elif equation_name == "shallow_water":
-        equation = ShallowWaterEquations(g)
-    else:
-        raise ValueError(f"Unknown equation type: {equation_name}")
 
     while t < t_end:
         # --- Adaptive Time-Stepping ---

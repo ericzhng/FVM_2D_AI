@@ -1,5 +1,4 @@
 import numpy as np
-from src.base_equation import BaseEquation
 from numba import float64
 from numba.experimental import jitclass
 
@@ -9,7 +8,7 @@ spec = [
 
 
 @jitclass(spec)
-class ShallowWaterEquations(BaseEquation):
+class ShallowWaterEquations:
     """
     Represents the 2D Shallow Water Equations for incompressible fluid flow with a free surface.
 
@@ -143,6 +142,16 @@ class ShallowWaterEquations(BaseEquation):
 
         # Convert back to conservative variables
         return self._prim_to_cons(P_ghost)
+
+    def apply_boundary_condition(self, U_inside, normal, bc_info):
+        bc_type = bc_info.get("type", "wall")
+
+        if bc_type == "wall":
+            return self._apply_wall_bc(U_inside, normal)
+        elif bc_type == "outlet":
+            return U_inside
+        else:
+            return self._apply_wall_bc(U_inside, normal)
 
     def hllc_flux(self, U_L, U_R, normal):
         """

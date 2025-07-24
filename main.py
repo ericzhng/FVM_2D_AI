@@ -61,7 +61,6 @@ def main():
         use_adaptive_dt=True,
         cfl=0.5,
         dt_initial=1e-2,
-        variable_to_plot=variable_to_plot,
     )
     print("Solver finished.")
 
