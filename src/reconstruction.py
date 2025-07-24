@@ -181,7 +181,7 @@ def compute_residual_flux_loop(
     face_midpoints,
     cell_centroids,
     cell_volumes,
-    elem_faces,
+    # elem_faces,
     boundary_face_keys,
     boundary_face_names,
     U,
@@ -248,26 +248,27 @@ def compute_residual_flux_loop(
                 # --- Boundary Face ---
                 # For boundary faces, the "right" state is determined by the boundary condition.
                 # This ensures a consistent second-order treatment at the boundaries.
-                face_tuple = tuple(sorted(elem_faces[i][j]))
-                bc_name = "wall"
-                for k, bf_key in enumerate(boundary_face_keys):
-                    if bf_key == face_tuple:
-                        bc_name = boundary_face_names[k]
-                        break
+                # face_tuple = tuple(sorted(elem_faces[i][j]))
+                # bc_name = "wall"
+                # for k, bf_key in enumerate(boundary_face_keys):
+                #     if bf_key == face_tuple:
+                #         bc_name = boundary_face_names[k]
+                #         break
 
-                bc_type = "wall"
-                for k, name in enumerate(bc_names):
-                    if name == bc_name:
-                        bc_type = bc_types[k]
-                        break
+                bc_type = "outlet"
+                # for k, name in enumerate(bc_names):
+                #     if name == bc_name:
+                #         bc_type = bc_types[k]
+                #         break
                 U_R = equation.apply_boundary_condition(U_L, face_normal, bc_type)
+                # U_R = equation.apply_boundary_condition(U_L, face_normal)
 
             # --- Numerical Flux Calculation ---
             # The numerical flux is computed using the specified Riemann solver.
-            if flux_type == 0:  # Roe
-                flux = equation.roe_flux(U_L, U_R, face_normal)
-            else:  # HLLC
-                flux = equation.hllc_flux(U_L, U_R, face_normal)
+            # if flux_type == "roe":  # Roe
+            #     flux = equation.roe_flux(U_L, U_R, face_normal)
+            # elif flux_type == "hllc":  # HLLC
+            flux = equation.hllc_flux(U_L, U_R, face_normal)
 
             flux_sum += flux * face_area
 
@@ -325,7 +326,6 @@ def compute_residual(
     boundary_face_names = [v["name"] for v in mesh.boundary_faces.values()]
     bc_names = list(boundary_conditions.keys())
     bc_types = [v["type"] for v in boundary_conditions.values()]
-    flux_type_code = 0 if flux_type == "roe" else 1
 
     # --- 3. Flux Integration Loop ---
     # This loop iterates through each cell, calculates the fluxes on its faces,
@@ -339,14 +339,14 @@ def compute_residual(
         mesh.face_midpoints,
         mesh.cell_centroids,
         mesh.cell_volumes,
-        mesh.elem_faces,
+        # mesh.elem_faces,
         boundary_face_keys,
         boundary_face_names,
         U,
         gradients,
         limiters,
         equation,
-        flux_type_code,
+        flux_type,
         bc_names,
         bc_types,
     )
