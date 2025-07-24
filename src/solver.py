@@ -3,14 +3,18 @@ from src.mesh import Mesh
 from src.time_step import calculate_adaptive_dt
 from src.visualization import plot_simulation_step
 from src.reconstruction import compute_residual
+from src.euler_equations import EulerEquations
+from src.shallow_water_equations import ShallowWaterEquations
 
 
 def solve(
     mesh: Mesh,
     U,
     boundary_conditions,
-    equation,
+    equation_name,
     t_end,
+    gamma=1.4,
+    g=9.81,
     limiter_type="barth_jespersen",
     flux_type="roe",
     over_relaxation=1.2,
@@ -60,13 +64,21 @@ def solve(
     n = 0
     dt_history = []
     dt = dt_initial
-    time_integration_method = "euler"  # Choose between "euler" and "rk2"
+    time_integration_method = "euler"
+
+    # Instantiate the appropriate JIT-compiled equation class
+    if equation_name == "euler":
+        equation = EulerEquations(gamma)
+    elif equation_name == "shallow_water":
+        equation = ShallowWaterEquations(g)
+    else:
+        raise ValueError(f"Unknown equation type: {equation_name}")
 
     while t < t_end:
         # --- Adaptive Time-Stepping ---
         if use_adaptive_dt:
             dt = calculate_adaptive_dt(mesh, U, equation, cfl)
-            dt = min(dt, t_end - t)  # Ensure the last step does not overshoot t_end
+            dt = min(dt, t_end - t)
 
         # --- Time Integration ---
         if time_integration_method == "rk2":
@@ -88,7 +100,7 @@ def solve(
             # U_new = 0.5 * (U + U_star - dt * R(U_star))
             residual_U_star = compute_residual(
                 mesh,
-                U_star,  # Use the intermediate state for the second residual calculation
+                U_star,
                 equation,
                 boundary_conditions,
                 limiter_type,

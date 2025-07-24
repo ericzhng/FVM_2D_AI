@@ -1,22 +1,21 @@
 import numpy as np
+from numba import njit, prange
 from src.mesh import Mesh
+from src.euler_equations import EulerEquations  # Import the jitclass
 
 
-# --- Limiter Functions ---
+# --- Limiter Functions (JIT-compiled for performance) ---
+@njit
 def barth_jespersen_limiter(r):
-    """Barth-Jespersen limiter function."""
-    return np.minimum(1, r)
+    return min(1.0, r)
 
-
+@njit
 def minmod_limiter(r):
-    """Minmod limiter function."""
-    return np.maximum(0, np.minimum(1, r))
+    return max(0.0, min(1.0, r))
 
-
+@njit
 def superbee_limiter(r):
-    """Superbee limiter function."""
-    return np.maximum(0, np.maximum(np.minimum(2 * r, 1), np.minimum(r, 2)))
-
+    return max(0.0, max(min(2.0 * r, 1.0), min(r, 2.0)))
 
 LIMITERS = {
     "barth_jespersen": barth_jespersen_limiter,
@@ -24,8 +23,21 @@ LIMITERS = {
     "superbee": superbee_limiter,
 }
 
+# --- Parallelized Core Functions ---
 
-def compute_gradients_gaussian(mesh: Mesh, U, over_relaxation=1.2):
+@njit(parallel=True)
+def compute_gradients_gaussian(
+    nelem,
+    nvars,
+    cell_neighbors,
+    face_normals,
+    face_areas,
+    cell_centroids,
+    cell_volumes,
+    face_to_cell_distances,
+    U,
+    over_relaxation,
+):
     """
     Computes gradients at cell centroids using the Gaussian method.
 

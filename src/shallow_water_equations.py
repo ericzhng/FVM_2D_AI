@@ -1,8 +1,13 @@
 import numpy as np
+from numba import jitclass, float64
 from src.base_equation import BaseEquation
-from src.time_step import calculate_adaptive_dt
+
+spec = [
+    ("g", float64),
+]
 
 
+@jitclass(spec)
 class ShallowWaterEquations(BaseEquation):
     """
     Represents the 2D Shallow Water Equations for incompressible fluid flow with a free surface.

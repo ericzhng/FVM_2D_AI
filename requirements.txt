@@ -1,6 +1,7 @@
-numpy
-scipy
-gmsh
-matplotlib
+numpy==2.2.6
+scipy==1.16.0
+gmsh==4.14.0
+matplotlib==3.10.3
 jupyterlab
 pytest>=8.3.5
+numba==0.61.2

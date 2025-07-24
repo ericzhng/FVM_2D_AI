@@ -1,8 +1,13 @@
 import numpy as np
+from numba import jitclass, float64
 from src.base_equation import BaseEquation
-from src.time_step import calculate_adaptive_dt
+
+spec = [
+    ("gamma", float64),
+]
 
 
+@jitclass(spec)
 class EulerEquations(BaseEquation):
     """
     Represents the 2D Euler equations for compressible fluid flow.
