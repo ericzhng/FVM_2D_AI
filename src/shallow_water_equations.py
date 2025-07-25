@@ -148,6 +148,8 @@ class ShallowWaterEquations:
 
         if bc_type == "wall":
             return self._apply_wall_bc(U_inside, normal)
+        elif bc_type == "inlet":
+            return bc_info.get("value", U_inside)
         elif bc_type == "outlet":
             return U_inside
         else:
