@@ -43,7 +43,7 @@ def plot_simulation_step(mesh: Mesh, U, title="", variable_to_plot=0):
     plt.ylabel("Y-coordinate")
     plt.gca().set_aspect("equal", adjustable="box")
     plt.savefig(f"Final_{variable_to_plot}.png")
-    plt.show()
+    # plt.show()
 
 
 def create_animation(

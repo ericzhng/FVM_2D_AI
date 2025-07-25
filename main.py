@@ -33,19 +33,12 @@ def main():
         U_init, boundary_conditions = setup_case_shallow_water(mesh)
         equation = ShallowWaterEquations(g=9.81)
         t_end = 20
-        variable_to_plot = 0  # Plot water height
     elif equation_type == "euler":
         U_init, boundary_conditions = setup_case_euler(mesh)
         equation = EulerEquations(gamma=1.4)
         t_end = 0.25
-        variable_to_plot = 0  # Plot density
     else:
         raise ValueError("Invalid equation type specified.")
-
-    # # Initial plot of the solution
-    # plot_simulation_step(
-    #     mesh, equation.cons_to_prim_batch(U_init), f"t={0:.1f} s", variable_to_plot
-    # )
 
     # --- 3. Solve ---
     print("Starting the FVM solver...")
@@ -66,11 +59,10 @@ def main():
 
     # --- 4. Visualize ---
     print("Creating animation of the results...")
-    create_animation(mesh, history, dt_history, variable_to_plot=variable_to_plot)
-    # plot_simulation_step(mesh, history[-1], "Final State Rho", variable_to_plot=0)
-    # plot_simulation_step(mesh, history[-1], "Final State U", variable_to_plot=1)
-    # plot_simulation_step(mesh, history[-1], "Final State V", variable_to_plot=2)
-    # plot_simulation_step(mesh, history[-1], "Final State P", variable_to_plot=3)
+    create_animation(mesh, history, dt_history, variable_to_plot=0)
+
+    for k in range(U_init.shape[1]):
+        plot_simulation_step(mesh, history[-1], "Final State", variable_to_plot=k)
 
 
 if __name__ == "__main__":
