@@ -165,13 +165,17 @@ class Mesh:
         if self.dim == 1:
             elem_node_indices = self.node_tag_map[self.elem_conn]
             elem_nodes_coords = self.node_coords[elem_node_indices]
-            self.cell_volumes = np.linalg.norm(elem_nodes_coords[:, 1, :] - elem_nodes_coords[:, 0, :], axis=1)
+            self.cell_volumes = np.linalg.norm(
+                elem_nodes_coords[:, 1, :] - elem_nodes_coords[:, 0, :], axis=1
+            )
         elif self.dim == 2:
             elem_node_indices = self.node_tag_map[self.elem_conn]
             elem_nodes_coords = self.node_coords[elem_node_indices]
             x = elem_nodes_coords[:, :, 0]
             y = elem_nodes_coords[:, :, 1]
-            self.cell_volumes = 0.5 * np.abs(np.sum(x * np.roll(y, -1, axis=1) - np.roll(x, -1, axis=1) * y, axis=1))
+            self.cell_volumes = 0.5 * np.abs(
+                np.sum(x * np.roll(y, -1, axis=1) - np.roll(x, -1, axis=1) * y, axis=1)
+            )
         elif self.dim == 3:
             self.cell_volumes = np.zeros(self.nelem)
             for i in range(self.nelem):
@@ -431,6 +435,9 @@ def plot_mesh(mesh: Mesh):
     Args:
         mesh (Mesh): The mesh object to visualize.
     """
+    if mesh.nelem == 0:
+        raise ValueError("Possibly mesh has not been read. Call read_mesh() first")
+
     fig, ax = plt.subplots(figsize=(12, 12))
 
     text_flag = mesh.nelem <= 2000

@@ -266,9 +266,9 @@ def compute_residual_flux_loop(
             # --- Numerical Flux Calculation ---
             # The numerical flux is computed using the specified Riemann solver.
             if flux_type == "roe":  # Roe
-                flux = equation.roe_flux(U_L, U_R, face_normal)
+                flux = equation.roe_flux_change(U_L, U_R, face_normal)
             elif flux_type == "hllc":  # HLLC
-                flux = equation.hllc_flux(U_L, U_R, face_normal)
+                flux = equation.hllc_flux_change(U_L, U_R, face_normal)
 
             flux_sum += flux * face_area
 

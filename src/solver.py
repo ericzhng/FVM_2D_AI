@@ -5,6 +5,7 @@ from src.visualization import plot_simulation_step
 from src.reconstruction import compute_residual
 from src.euler_equations import EulerEquations
 from src.shallow_water_equations import ShallowWaterEquations
+import time
 
 
 def solve(
@@ -64,6 +65,8 @@ def solve(
     time_integration_method = "euler"
 
     while t < t_end:
+        start_time = time.time()  # Start timing the loop
+
         # --- Adaptive Time-Stepping ---
         if use_adaptive_dt:
             dt = calculate_adaptive_dt(mesh, U, equation, cfl)
@@ -122,9 +125,14 @@ def solve(
         t += dt
         n += 1
 
+        end_time = time.time()  # End timing the loop
+        loop_time = end_time - start_time
+
         # Store history and print progress
         history.append(U.copy())
         dt_history.append(dt)
-        print(f"Time: {t:.4f}s / {t_end:.4f}s, dt = {dt:.4f}s, Step: {n}")
+        print(
+            f"Time: {t:.4f}s / {t_end:.4f}s, dt = {dt:.4f}s, Step: {n}, Loop Time: {loop_time:.4f}s"
+        )
 
     return history, dt_history
