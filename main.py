@@ -20,7 +20,7 @@ def main():
     # --- 1. Initialize and Read Mesh ---
     print("Initializing and reading mesh...")
     mesh = Mesh()
-    mesh.read_mesh("data/river_structured.msh")
+    mesh.read_mesh("data/river_triangular.msh")
     mesh.analyze_mesh()
     mesh.summary()
     # plot_mesh(mesh)  # Optional: Uncomment to visualize the mesh and check normals
