@@ -20,19 +20,19 @@ def main():
     # --- 1. Initialize and Read Mesh ---
     print("Initializing and reading mesh...")
     mesh = Mesh()
-    mesh.read_mesh("data/euler_mesh.msh")
+    mesh.read_mesh("data/river_structured.msh")
     mesh.analyze_mesh()
     mesh.summary()
     # plot_mesh(mesh)  # Optional: Uncomment to visualize the mesh and check normals
 
     # --- 2. Set Up Case ---
     print("Setting up the simulation case...")
-    equation_type = "euler"  # Choose 'shallow_water' or 'euler'
+    equation_type = "shallow_water"  # Choose 'shallow_water' or 'euler'
 
     if equation_type == "shallow_water":
         U_init, boundary_conditions = setup_case_shallow_water(mesh)
         equation = ShallowWaterEquations(g=9.81)
-        t_end = 0.04
+        t_end = 20
         variable_to_plot = 0  # Plot water height
     elif equation_type == "euler":
         U_init, boundary_conditions = setup_case_euler(mesh)
@@ -56,7 +56,7 @@ def main():
         equation,
         t_end=t_end,
         limiter_type="minmod",  # Options: 'barth_jespersen', 'minmod', 'superbee'
-        flux_type="roe",
+        flux_type="hllc",
         over_relaxation=1.0,
         use_adaptive_dt=True,
         cfl=0.5,

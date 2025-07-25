@@ -11,7 +11,7 @@ def setup_case_shallow_water(mesh: Mesh):
     # Define primitive variables for the four regions (h, u, v)
     # These values are illustrative and can be adjusted for specific test cases.
     h_vals = np.array([2.0, 1.0, 1.5, 0.5])  # Water height
-    u_vals = np.array([0.0, 0.5, -0.5, 0.0]) # Velocity in x-direction
+    u_vals = np.array([0.0, 0.5, -0.5, 0.0])  # Velocity in x-direction
     v_vals = np.array([0.0, 0.0, 0.0, 0.5])  # Velocity in y-direction
 
     # Get cell centroid coordinates
@@ -19,10 +19,10 @@ def setup_case_shallow_water(mesh: Mesh):
     y = mesh.cell_centroids[:, 1]
 
     # Create boolean masks for each quadrant (assuming a domain from 0 to 1 in x and y)
-    reg1 = (x >= 0.5) & (y >= 0.5)  # Top-right
-    reg2 = (x < 0.5) & (y >= 0.5)  # Top-left
-    reg3 = (x < 0.5) & (y < 0.5)  # Bottom-left
-    reg4 = (x >= 0.5) & (y < 0.5)  # Bottom-right
+    reg1 = (x >= 50) & (y >= 50)  # Top-right
+    reg2 = (x < 50) & (y >= 50)  # Top-left
+    reg3 = (x < 50) & (y < 50)  # Bottom-left
+    reg4 = (x >= 50) & (y < 50)  # Bottom-right
 
     # Initialize arrays for primitive variables for all cells
     h = np.zeros(mesh.nelem)

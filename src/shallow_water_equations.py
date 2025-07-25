@@ -79,6 +79,7 @@ class ShallowWaterEquations:
             np.ndarray: The flux vector normal to the face.
         """
         h, hu, hv = U
+        h = max(h, 1e-8)
         u, v = hu / h, hv / h  # Primitive velocities
         un = u * normal[0] + v * normal[1]  # Normal velocity component
 
@@ -104,8 +105,7 @@ class ShallowWaterEquations:
             float: The maximum absolute eigenvalue.
         """
         h, u, v = self._cons_to_prim(U)
-        # Ensure h is non-negative for sqrt
-        c = np.sqrt(self.g * max(0, h))
+        c = np.sqrt(self.g * h)
         # Max eigenvalue = |velocity| + c
         return np.sqrt(u**2 + v**2) + c
 
@@ -143,13 +143,12 @@ class ShallowWaterEquations:
         # Convert back to conservative variables
         return self._prim_to_cons(P_ghost)
 
-    def apply_boundary_condition(self, U_inside, normal, bc_info):
-        bc_type = bc_info.get("type", "wall")
+    def apply_boundary_condition(self, U_inside, normal, bc_type):
 
         if bc_type == "wall":
             return self._apply_wall_bc(U_inside, normal)
-        elif bc_type == "inlet":
-            return bc_info.get("value", U_inside)
+        # elif bc_type == "inlet":
+        #     return bc_info.get("value", U_inside)
         elif bc_type == "outlet":
             return U_inside
         else:
@@ -173,7 +172,7 @@ class ShallowWaterEquations:
         """
         nx, ny = normal
         # Tangent vector (rotated 90 degrees clockwise from normal)
-        tx, ty = ny, -nx
+        tx, ty = -ny, nx
 
         # --- Left State ---
         hL, uL, vL = self._cons_to_prim(U_L)
@@ -200,17 +199,14 @@ class ShallowWaterEquations:
         # Roe-averaged normal velocity
         vn_roe = u_roe * nx + v_roe * ny
         # Roe-averaged speed of sound
-        c_roe = np.sqrt(self.g * (hL + hR) / 2)  # Simpler Roe average for celerity
-
-        # --- Wave Speed Estimates (Toro's HLLC, Section 10.3.2 adapted for SWE) ---
-        # Estimate pressure in star region (p_star) - for SWE, this is related to h_star
-        # Using a simplified estimate for the star region velocity (u_star)
-        u_star = (vnL * sqrt_hL + vnR * sqrt_hR + 2 * (cL - cR)) / (sqrt_hL + sqrt_hR)
+        a_roe = np.sqrt(self.g * (hL + hR) / 2)  # Simpler Roe average for celerity
 
         # Wave speeds
-        SL = min(vnL - cL, u_star - c_roe)
-        SR = max(vnR + cR, u_star + c_roe)
-        SM = u_star  # Contact wave speed is the star region velocity
+        SL = min(vnL - cL, vn_roe - a_roe)
+        SR = max(vnR + cR, vn_roe + a_roe)
+        SM = (vnL * sqrt_hL + vnR * sqrt_hR + 2 * (cL - cR)) / (
+            sqrt_hL + sqrt_hR
+        )  # Contact wave speed is the star region velocity
 
         # --- HLLC Flux Calculation ---
         if 0 <= SL:
@@ -219,7 +215,7 @@ class ShallowWaterEquations:
         elif SL < 0 <= SM:
             # Left-going shock/rarefaction, contact wave to the right
             # U_star_L state
-            h_star_L = hL * (SL - vnL) / (SM - vnL)
+            h_star_L = hL * (SL - vnL) / (SL - SM)
             hu_star_L = h_star_L * (SM * nx + vtL * tx)
             hv_star_L = h_star_L * (SM * ny + vtL * ty)
             U_star_L = np.array([h_star_L, hu_star_L, hv_star_L])
@@ -228,7 +224,7 @@ class ShallowWaterEquations:
         elif SM < 0 < SR:
             # Contact wave to the left, right-going shock/rarefaction
             # U_star_R state
-            h_star_R = hR * (SR - vnR) / (SM - vnR)
+            h_star_R = hR * (SR - vnR) / (SR - SM)
             hu_star_R = h_star_R * (SM * nx + vtR * tx)
             hv_star_R = h_star_R * (SM * ny + vtR * ty)
             U_star_R = np.array([h_star_R, hu_star_R, hv_star_R])
@@ -255,19 +251,24 @@ class ShallowWaterEquations:
             np.ndarray: The Roe numerical flux across the face.
         """
         nx, ny = normal
+        tx, ty = -ny, nx  # Tangent vector
 
         # --- Left and Right States ---
         hL, uL, vL = self._cons_to_prim(U_L)
+        vnL = uL * nx + vL * ny
+        vtL = uL * tx + vL * ty
         FL = self._compute_flux(U_L, normal)
 
         hR, uR, vR = self._cons_to_prim(U_R)
+        vnR = uR * nx + vR * ny
+        vtR = uR * tx + vR * ty
         FR = self._compute_flux(U_R, normal)
 
         # --- Roe Averages ---
         sqrt_hL = np.sqrt(hL)
         sqrt_hR = np.sqrt(hR)
-
         h_avg = sqrt_hL * sqrt_hR
+
         u_avg = (sqrt_hL * uL + sqrt_hR * uR) / (sqrt_hL + sqrt_hR)
         v_avg = (sqrt_hL * vL + sqrt_hR * vR) / (sqrt_hL + sqrt_hR)
         c_avg = np.sqrt(self.g * h_avg)
@@ -276,13 +277,12 @@ class ShallowWaterEquations:
         # --- Eigenvalues (Wave Speeds) ---
         lambda1 = vn_avg - c_avg
         lambda2 = vn_avg
-        lambda3 = vn_avg
-        lambda4 = vn_avg + c_avg  # This is for Euler, SWE only has 3 waves
+        lambda3 = vn_avg + c_avg
         ws = np.array([lambda1, lambda2, lambda3])  # SWE has 3 waves
 
         # --- Entropy Fix (Harten's entropy fix) ---
         delta = 0.1 * c_avg
-        for i in range(len(ws)):
+        for i in [0]:
             if abs(ws[i]) < delta:
                 ws[i] = (ws[i] ** 2 + delta**2) / (2 * delta)
         ws = np.abs(ws)  # Use absolute values for dissipation
@@ -293,10 +293,10 @@ class ShallowWaterEquations:
         # --- Right Eigenvectors (Roe matrix for 2D Shallow Water) ---
         # Based on Toro, Chapter 13, Section 13.3.2 (for 1D, extended to 2D)
         # R1: (1, u-c, v) - for 1D, need to project to normal/tangential
-        R1 = np.array([1, u_avg - c_avg * nx, v_avg - c_avg * ny])
+        R1 = np.array([1.0, u_avg - c_avg * nx, v_avg - c_avg * ny])
 
         # R2: (0, -ny, nx) - tangential wave
-        R2 = np.array([0, -ny, nx])
+        R2 = c_avg * np.array([0, -ny, nx])
 
         # R3: (1, u+c, v) - for 1D, need to project to normal/tangential
         R3 = np.array([1, u_avg + c_avg * nx, v_avg + c_avg * ny])
@@ -307,7 +307,7 @@ class ShallowWaterEquations:
         # --- Wave Strengths (alpha_k = L_k . dU) ---
         try:
             alpha = np.linalg.solve(Rv, dU)
-        except np.linalg.LinAlgError:
+        except Exception:
             # Fallback to HLL flux if matrix is singular
             return 0.5 * (FL + FR) - 0.5 * np.abs(vn_avg) * dU
 
@@ -317,6 +317,7 @@ class ShallowWaterEquations:
         for i in range(len(ws)):
             dissipation += ws[i] * alpha[i] * Rv[:, i]
 
+        # dissipation = Rv @ (ws * alpha)
         roe_flux = 0.5 * (FL + FR - dissipation)
 
         return roe_flux

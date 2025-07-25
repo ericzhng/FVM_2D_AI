@@ -62,7 +62,7 @@ def solve(
     n = 0
     dt_history = []
     dt = dt_initial
-    time_integration_method = "euler"
+    time_integration_method = "rk2"
 
     while t < t_end:
         start_time = time.time()  # Start timing the loop

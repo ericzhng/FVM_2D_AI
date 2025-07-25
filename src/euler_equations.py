@@ -141,6 +141,7 @@ class EulerEquations:
     def apply_boundary_condition(self, U_inside, normal, bc_type):
         # Numba jitclass methods cannot access dictionaries easily.
         # The logic is simplified to handle bc_type as a string directly.
+
         if bc_type == "wall":
             return self._apply_wall_bc(U_inside, normal)
         elif bc_type == "outlet":
@@ -280,6 +281,7 @@ class EulerEquations:
         sqrt_rL = np.sqrt(rL)
         sqrt_rR = np.sqrt(rR)
         r = sqrt_rL * sqrt_rR
+
         u = (sqrt_rL * uL + sqrt_rR * uR) / (sqrt_rL + sqrt_rR)
         v = (sqrt_rL * vL + sqrt_rR * vR) / (sqrt_rL + sqrt_rR)
         H = (sqrt_rL * HL + sqrt_rR * HR) / (sqrt_rL + sqrt_rR)
@@ -538,7 +540,7 @@ class EulerEquations:
         # For 2D, the second and third waves are shear waves.
         # R2 and R3 are related to the tangential components of velocity.
         # R2: (0, -ny, nx, -u*ny + v*nx)
-        R2 = np.array([0.0, -ny, nx, -u_avg * ny + v_avg * nx])
+        R2 = a_avg * np.array([0.0, -ny, nx, -u_avg * ny + v_avg * nx])
 
         # R3: (0, nx, ny, u*nx + v*ny) - This is not standard for the third wave.
         # The third wave is also a shear wave, orthogonal to the second.
