@@ -55,8 +55,8 @@ def main():
         boundary_conditions,
         equation,
         t_end=t_end,
-        limiter_type="minmod",  # Options: 'barth_jespersen', 'minmod', 'superbee'
-        flux_type="hllc",
+        limiter_type="barth_jespersen",  # Options: 'barth_jespersen', 'minmod', 'superbee'
+        flux_type="roe",
         over_relaxation=1.0,
         use_adaptive_dt=True,
         cfl=0.5,

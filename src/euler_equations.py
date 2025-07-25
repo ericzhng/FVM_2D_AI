@@ -200,7 +200,7 @@ class EulerEquations:
 
         # --- Star-Region Pressure Estimate (PVRS) ---
         p_star = max(
-            0,
+            0.0,
             0.5 * (pL + pR) + 0.5 * (vnL - vnR) * (0.25 * (rL + rR) * (aL + aR)),
         )
 
@@ -210,10 +210,10 @@ class EulerEquations:
         )
 
         # --- HLLC Flux Calculation ---
-        if 0 <= SL:
+        if 0.0 <= SL:
             # All waves move to the right
             return FL
-        elif SL < 0 <= SM:
+        elif SL < 0.0 <= SM:
             # Left-going shock/rarefaction, contact wave to the right
             # U_star_L = rho_L * (SL - vnL) / (SL - SM) * [1, SM*nx - vtL*ny, SM*ny + vtL*nx, E_star_L]
             U_star_L = (
@@ -222,7 +222,7 @@ class EulerEquations:
                 / (SL - SM)
                 * np.array(
                     [
-                        1,
+                        1.0,
                         SM * nx - vtL * ny,  # Corrected velocity
                         SM * ny + vtL * nx,  # Corrected velocity
                         (U_L[3] / rL) + (SM - vnL) * (SM + pL / (rL * (SL - vnL))),
@@ -230,7 +230,7 @@ class EulerEquations:
                 )
             )
             return FL + SL * (U_star_L - U_L)
-        elif SM < 0 < SR:
+        elif SM < 0.0 < SR:
             # Contact wave to the left, right-going shock/rarefaction
             # U_star_R = rho_R * (SR - vnR) / (SR - SM) * [1, SM*nx - vtR*ny, SM*ny + vtR*nx, E_star_R]
             U_star_R = (
@@ -239,7 +239,7 @@ class EulerEquations:
                 / (SR - SM)
                 * np.array(
                     [
-                        1,
+                        1.0,
                         SM * nx - vtR * ny,  # Corrected velocity
                         SM * ny + vtR * nx,  # Corrected velocity
                         (U_R[3] / rR) + (SM - vnR) * (SM + pR / (rR * (SR - vnR))),
@@ -290,7 +290,7 @@ class EulerEquations:
         v = (sqrt_rL * vL + sqrt_rR * vR) / (sqrt_rL + sqrt_rR)
         H = (sqrt_rL * HL + sqrt_rR * HR) / (sqrt_rL + sqrt_rR)
         a_sq = (self.gamma - 1) * (H - 0.5 * (u**2 + v**2))
-        a = np.sqrt(max(a_sq, 1e-9))  # Ensure non-negativity
+        a = np.sqrt(max(a_sq, 1e-6))  # Ensure non-negativity
         vn = u * nx + v * ny
 
         # --- Wave Strengths (Jump in characteristics) ---
@@ -323,7 +323,7 @@ class EulerEquations:
         # The columns of this matrix are the right eigenvectors of the Roe matrix.
         Rv = np.array(
             [
-                [1, 0, 1, 1],
+                [1.0, 0.0, 1.0, 1.0],
                 [u - a * nx, -a * ny, u, u + a * nx],
                 [v - a * ny, a * nx, v, v + a * ny],
                 [H - vn * a, -(u * ny - v * nx) * a, 0.5 * (u**2 + v**2), H + vn * a],
@@ -333,6 +333,6 @@ class EulerEquations:
         # --- Roe Flux ---
         # F_roe = 0.5 * (F_L + F_R) - 0.5 * sum(ws_i * dV_i * R_i)
         dissipation = Rv @ (ws * dV)
-        roe_flux = 0.5 * (FL + FR - dissipation)
+        flux = 0.5 * (FL + FR - dissipation)
 
-        return roe_flux
+        return flux
