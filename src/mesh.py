@@ -1,9 +1,9 @@
 import numpy as np
 import gmsh
 
-import matplotlib.tri as tri
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
+from line_profiler import profile
 
 
 class Mesh:
@@ -33,6 +33,7 @@ class Mesh:
         self.cell_neighbors = np.array([])
         self.elem_faces = np.array([])
 
+    @profile
     def read_mesh(self, mesh_file):
         """
         Reads the mesh file using gmsh, determines the highest dimension,
@@ -47,6 +48,7 @@ class Mesh:
 
         self.node_tags, self.node_coords, _ = gmsh.model.mesh.getNodes()
         self.node_coords = np.array(self.node_coords).reshape(-1, 3)
+
         self.nnode = len(self.node_tags)
 
         elem_types, elem_tags, node_connectivity = gmsh.model.mesh.getElements()
@@ -77,6 +79,7 @@ class Mesh:
         self._get_boundary_info()
         gmsh.finalize()
 
+    @profile
     def analyze_mesh(self):
         """
         Analyzes the mesh to compute all geometric and connectivity properties
@@ -85,10 +88,18 @@ class Mesh:
         if self.node_tags is None:
             raise RuntimeError("Mesh data has not been read. Call read_mesh() first.")
 
-        self._compute_cell_centroids()
+        # Create a mapping from node tags to their 0-based index.
+        max_tag = np.max(self.node_tags)
+        self.node_tag_map = np.full(max_tag + 1, -1, dtype=np.int32)
+        self.node_tag_map[self.node_tags] = np.arange(self.nnode, dtype=np.int32)
+
+        self._compute_cell_centroids_fastest()
+        # self._compute_cell_centroids()
+        # self._compute_cell_centroids_old()
         self._compute_mesh_properties()
         self._compute_cell_volumes()
 
+    @profile
     def _get_boundary_info(self):
         """
         Extracts boundary faces and their corresponding physical group tags.
@@ -115,7 +126,8 @@ class Mesh:
                         face = tuple(sorted(face_nodes))
                         self.boundary_faces[face] = {"name": name, "tag": tag}
 
-    def _compute_cell_centroids(self):
+    @profile
+    def _compute_cell_centroids_old(self):
         """Computes the centroid of each element."""
         self.cell_centroids = np.zeros((self.nelem, 3))
         for i, elem_nodes_tags in enumerate(self.elem_conn):
@@ -125,39 +137,56 @@ class Mesh:
             nodes = self.node_coords[np.array(node_indices)]
             self.cell_centroids[i] = np.mean(nodes, axis=0)
 
+    @profile
+    def _compute_cell_centroids(self):
+        """Computes the centroid of each element."""
+        self.cell_centroids = np.zeros((self.nelem, 3))
+
+        for i, elem_nodes_tags in enumerate(self.elem_conn):
+            node_indices = [self.node_tag_map[tag] for tag in elem_nodes_tags]
+            nodes = self.node_coords[node_indices]
+            self.cell_centroids[i] = np.mean(nodes, axis=0)
+
+    @profile
+    def _compute_cell_centroids_fastest(self):
+        """Computes the centroid of each element using vectorized operations."""
+        # Use the map to convert element connectivity from tags to indices.
+        elem_node_indices = self.node_tag_map[self.elem_conn]
+
+        # Gather all node coordinates for all elements.
+        elem_nodes_coords = self.node_coords[elem_node_indices]
+
+        # Compute the mean over the nodes for each element to get the centroids.
+        self.cell_centroids = np.mean(elem_nodes_coords, axis=1)
+
+    @profile
     def _compute_cell_volumes(self):
         """Computes the volume/area of each element."""
-        self.cell_volumes = np.zeros(self.nelem)
-        for i, elem_nodes_tags in enumerate(self.elem_conn):
-            node_indices = [
-                np.where(self.node_tags == tag)[0][0] for tag in elem_nodes_tags
-            ]
-            nodes = self.node_coords[np.array(node_indices)]
-
-            if self.dim == 1:
-                self.cell_volumes[i] = np.linalg.norm(nodes[1] - nodes[0])
-            elif self.dim == 2:
-                x = nodes[:, 0]
-                y = nodes[:, 1]
-                self.cell_volumes[i] = 0.5 * np.abs(
-                    np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))
-                )
-            elif self.dim == 3:
-                # Volume calculation using divergence theorem, based on face properties
+        if self.dim == 1:
+            elem_node_indices = self.node_tag_map[self.elem_conn]
+            elem_nodes_coords = self.node_coords[elem_node_indices]
+            self.cell_volumes = np.linalg.norm(elem_nodes_coords[:, 1, :] - elem_nodes_coords[:, 0, :], axis=1)
+        elif self.dim == 2:
+            elem_node_indices = self.node_tag_map[self.elem_conn]
+            elem_nodes_coords = self.node_coords[elem_node_indices]
+            x = elem_nodes_coords[:, :, 0]
+            y = elem_nodes_coords[:, :, 1]
+            self.cell_volumes = 0.5 * np.abs(np.sum(x * np.roll(y, -1, axis=1) - np.roll(x, -1, axis=1) * y, axis=1))
+        elif self.dim == 3:
+            self.cell_volumes = np.zeros(self.nelem)
+            for i in range(self.nelem):
                 volume = 0.0
                 for j, face_nodes in enumerate(self.elem_faces[i]):
-                    node_indices_face = [
-                        np.where(self.node_tags == tag)[0][0] for tag in face_nodes
-                    ]
-                    face_midpoint = np.mean(
-                        self.node_coords[np.array(node_indices_face)],
-                        axis=0,
-                    )
+                    node_indices_face = [self.node_tag_map[tag] for tag in face_nodes]
+                    face_midpoint = np.mean(self.node_coords[node_indices_face], axis=0)
                     face_normal = self.face_normals[i, j]
                     face_area = self.face_areas[i, j]
                     volume += np.dot(face_midpoint, face_normal) * face_area
                 self.cell_volumes[i] = volume / 3.0
+        else:
+            self.cell_volumes = np.zeros(self.nelem)
 
+    @profile
     def _compute_mesh_properties(self):
         """
         Computes cell neighbors and face properties (normals, tangentials, areas).
@@ -204,19 +233,37 @@ class Mesh:
         self.face_areas = np.zeros((self.nelem, faces_per_elem))
         self.face_midpoints = np.zeros((self.nelem, faces_per_elem, 3))
         self.face_to_cell_distances = np.zeros((self.nelem, faces_per_elem, 2))
+
         self.elem_faces = [[] for _ in range(self.nelem)]
 
-        for i in range(self.nelem):
-            elem_nodes = self.elem_conn[i]
-            for j in range(faces_per_elem):
-                face_node_indices = face_nodes_def[j]
-                face_nodes = tuple(sorted(elem_nodes[k] for k in face_node_indices))
+        # # Old method
+        # for i in range(self.nelem):
+        #     elem_nodes = self.elem_conn[i]
+        #     for j in range(faces_per_elem):
+        #         face_node_indices = face_nodes_def[j]
+        #         face_nodes = tuple(sorted(elem_nodes[k] for k in face_node_indices))
 
-                self.elem_faces[i].append(face_nodes)
-                if face_nodes not in face_to_elems:
-                    face_to_elems[face_nodes] = []
-                face_to_elems[face_nodes].append(i)
+        #         self.elem_faces[i].append(face_nodes)
+        #         if face_nodes not in face_to_elems:
+        #             face_to_elems[face_nodes] = []
+        #         face_to_elems[face_nodes].append(i)
 
+        # New method
+        if faces_per_elem > 0:
+            # Vectorized extraction and sorting of face nodes
+            face_nodes_def_arr = np.array(face_nodes_def)
+            all_faces_nodes = self.elem_conn[:, face_nodes_def_arr]
+            all_faces_nodes.sort(axis=2)
+
+            # Pre-allocate self.elem_faces as a list of lists
+            self.elem_faces = [[None] * faces_per_elem for _ in range(self.nelem)]
+            for i in range(self.nelem):
+                for j in range(faces_per_elem):
+                    face_nodes = tuple(all_faces_nodes[i, j])
+                    self.elem_faces[i][j] = face_nodes
+                    face_to_elems.setdefault(face_nodes, []).append(i)
+
+        # Compute cell neighbors
         for i in range(self.nelem):
             for j, face_nodes in enumerate(self.elem_faces[i]):
                 elems = face_to_elems[face_nodes]
@@ -225,9 +272,9 @@ class Mesh:
                     neighbor_idx = elems[0] if elems[1] == i else elems[1]
                 self.cell_neighbors[i, j] = neighbor_idx
 
-                node_indices = [
-                    np.where(self.node_tags == tag)[0][0] for tag in face_nodes
-                ]
+                # [np.where(self.node_tags == tag)[0][0] for tag in face_nodes]
+                node_indices = [self.node_tag_map[tag] for tag in face_nodes]
+
                 nodes = self.node_coords[np.array(node_indices)]
                 face_midpoint = np.mean(nodes, axis=0)
                 self.face_midpoints[i, j] = face_midpoint
@@ -281,6 +328,7 @@ class Mesh:
                     self.face_normals[i, j] = normal
                     self.face_tangentials[i, j] = tangent
 
+    @profile
     def get_mesh_quality(self, metric="aspect_ratio"):
         """
         Computes mesh quality for each element.
@@ -290,18 +338,14 @@ class Mesh:
             return np.ones(self.nelem)
 
         for i, elem_nodes_tags in enumerate(self.elem_conn):
-            node_indices = [
-                np.where(self.node_tags == tag)[0][0] for tag in elem_nodes_tags
-            ]
+            node_indices = [self.node_tag_map[tag] for tag in elem_nodes_tags]
+            # node_indices = [
+            #     np.where(self.node_tags == tag)[0][0] for tag in elem_nodes_tags
+            # ]
             nodes = self.node_coords[np.array(node_indices)]
 
-            num_nodes = len(nodes)
-            edge_lengths = np.array(
-                [
-                    np.linalg.norm(nodes[j] - nodes[(j + 1) % num_nodes])
-                    for j in range(num_nodes)
-                ]
-            )
+            rolled_nodes = np.roll(nodes, -1, axis=0)
+            edge_lengths = np.linalg.norm(nodes - rolled_nodes, axis=1)
 
             if self.dim == 2:
                 if min(edge_lengths) > 1e-9:
@@ -312,9 +356,10 @@ class Mesh:
                 # Simple aspect ratio for 3D: longest edge / shortest edge
                 all_edge_lengths = []
                 for face in self.elem_faces[i]:
-                    face_node_indices = [
-                        np.where(self.node_tags == tag)[0][0] for tag in face
-                    ]
+                    face_node_indices = [self.node_tag_map[tag] for tag in face]
+                    # face_node_indices = [
+                    #     np.where(self.node_tags == tag)[0][0] for tag in face
+                    # ]
                     face_nodes_coords = self.node_coords[np.array(face_node_indices)]
                     for k in range(len(face_nodes_coords)):
                         p1 = face_nodes_coords[k]
@@ -388,67 +433,79 @@ def plot_mesh(mesh: Mesh):
     """
     fig, ax = plt.subplots(figsize=(12, 12))
 
+    text_flag = mesh.nelem <= 2000
+
+    # Create a mapping from node tags to their 0-based index.
+    max_tag = np.max(mesh.node_tags)
+    node_tag_map = np.full(max_tag + 1, -1, dtype=np.int32)
+    node_tag_map[mesh.node_tags] = np.arange(mesh.nnode, dtype=np.int32)
+
     # Plot elements and their labels
     for i, elem_nodes_tags in enumerate(mesh.elem_conn):
-        node_indices = [
-            np.where(mesh.node_tags == tag)[0][0] for tag in elem_nodes_tags
-        ]
+        node_indices = [node_tag_map[tag] for tag in elem_nodes_tags]
+        # node_indices = [
+        #     np.where(mesh.node_tags == tag)[0][0] for tag in elem_nodes_tags
+        # ]
         nodes = mesh.node_coords[np.array(node_indices)]
         polygon = Polygon(nodes[:, :2], edgecolor="b", facecolor="none", lw=0.5)
         ax.add_patch(polygon)
-        ax.text(
-            mesh.cell_centroids[i, 0],
-            mesh.cell_centroids[i, 1],
-            f"{i} (A={mesh.cell_volumes[i]:.2f})",
-            color="blue",
-            fontsize=8,
-            ha="center",
-        )
+        if text_flag:
+            ax.text(
+                mesh.cell_centroids[i, 0],
+                mesh.cell_centroids[i, 1],
+                f"{i} (A={mesh.cell_volumes[i]:.2f})",
+                color="blue",
+                fontsize=8,
+                ha="center",
+            )
+
     # Plot node labels
-    for i, coord in enumerate(mesh.node_coords):
-        ax.text(
-            coord[0],
-            coord[1],
-            str(mesh.node_tags[i]),
-            color="red",
-            fontsize=8,
-            ha="center",
-        )
+    if text_flag:
+        for i, coord in enumerate(mesh.node_coords):
+            ax.text(
+                coord[0],
+                coord[1],
+                str(mesh.node_tags[i]),
+                color="red",
+                fontsize=8,
+                ha="center",
+            )
 
     # Plot face normals
-    for i in range(mesh.nelem):
-        for j, _ in enumerate(mesh.elem_faces[i]):
-            midpoint = mesh.face_midpoints[i, j]
-            normal = mesh.face_normals[i, j]
-            face_to_cell_distances = mesh.face_to_cell_distances[i, j][0]
+    if text_flag:
+        for i in range(mesh.nelem):
+            for j, _ in enumerate(mesh.elem_faces[i]):
+                midpoint = mesh.face_midpoints[i, j]
+                normal = mesh.face_normals[i, j]
+                face_to_cell_distances = mesh.face_to_cell_distances[i, j][0]
 
-            # Scale for visibility
-            normal_scaled = normal * face_to_cell_distances * 0.5
+                # Scale for visibility
+                normal_scaled = normal * face_to_cell_distances * 0.5
 
-            # Plot normal vector
-            ax.quiver(
-                midpoint[0],
-                midpoint[1],
-                normal_scaled[0],
-                normal_scaled[1],
-                angles="xy",
-                scale_units="xy",
-                scale=1,
-                color="green",
-                width=0.003,
-            )
+                # Plot normal vector
+                ax.quiver(
+                    midpoint[0],
+                    midpoint[1],
+                    normal_scaled[0],
+                    normal_scaled[1],
+                    angles="xy",
+                    scale_units="xy",
+                    scale=1,
+                    color="green",
+                    width=0.003,
+                )
 
     ax.set_aspect("equal", "box")
     ax.set_title("Mesh Visualization")
     plt.xlabel("X-coordinate")
     plt.ylabel("Y-coordinate")
     plt.grid(False)
-    plt.show()
+    plt.show(block=True)
 
 
 if __name__ == "__main__":
     try:
-        mesh_file = "./data/complex_shape_mesh.msh"
+        mesh_file = "./data/euler_mesh.msh"
 
         # New workflow
         mesh = Mesh()
