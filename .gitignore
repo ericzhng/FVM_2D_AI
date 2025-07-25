@@ -5,6 +5,7 @@ __pycache__/
 
 trunk/**
 *.gif
+*.png
 
 data/*.msh
 

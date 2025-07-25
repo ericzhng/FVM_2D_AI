@@ -67,9 +67,10 @@ def main():
     # --- 4. Visualize ---
     print("Creating animation of the results...")
     create_animation(mesh, history, dt_history, variable_to_plot=variable_to_plot)
-    # plot_simulation_step(
-    #     mesh, history[-1], "Final State", variable_to_plot=variable_to_plot
-    # )
+    plot_simulation_step(mesh, history[-1], "Final State Rho", variable_to_plot=0)
+    plot_simulation_step(mesh, history[-1], "Final State U", variable_to_plot=1)
+    plot_simulation_step(mesh, history[-1], "Final State V", variable_to_plot=2)
+    plot_simulation_step(mesh, history[-1], "Final State P", variable_to_plot=3)
 
 
 if __name__ == "__main__":
