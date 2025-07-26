@@ -238,8 +238,6 @@ class Mesh:
         self.face_midpoints = np.zeros((self.nelem, faces_per_elem, 3))
         self.face_to_cell_distances = np.zeros((self.nelem, faces_per_elem, 2))
 
-        self.elem_faces = [[] for _ in range(self.nelem)]
-
         # # Old method
         # for i in range(self.nelem):
         #     elem_nodes = self.elem_conn[i]
@@ -265,13 +263,13 @@ class Mesh:
             # This loop is still necessary to build the face-to-element mapping
             for i in range(self.nelem):
                 for j in range(faces_per_elem):
-                    face_nodes = tuple(all_faces_nodes[i, j])
-                    face_to_elems.setdefault(face_nodes, []).append(i)
+                    face_nodes = all_faces_nodes[i, j]
+                    face_to_elems.setdefault(tuple(face_nodes), []).append(i)
 
         # Compute cell neighbors
         for i in range(self.nelem):
             for j, face_nodes in enumerate(self.elem_faces[i]):
-                elems = face_to_elems[face_nodes]
+                elems = face_to_elems[tuple(face_nodes)]
                 neighbor_idx = -1
                 if len(elems) > 1:
                     neighbor_idx = elems[0] if elems[1] == i else elems[1]

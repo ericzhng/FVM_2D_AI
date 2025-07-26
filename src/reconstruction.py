@@ -252,20 +252,19 @@ def compute_residual_flux_loop(
                 # --- Boundary Face ---
                 # For boundary faces, the "right" state is determined by the boundary condition.
                 # This ensures a consistent second-order treatment at the boundaries.
-                # face_tuple = tuple(sorted(elem_faces[i][j]))
-                # bc_name = "wall"
-                # for k, bf_key in enumerate(boundary_face_keys):
-                #     if bf_key == face_tuple:
-                #         bc_name = boundary_face_names[k]
-                #         break
+                face_tuple = tuple(sorted(elem_faces[i][j]))
+                bc_name = "wall"
+                for k, bf_key in enumerate(boundary_face_keys):
+                    if bf_key == face_tuple:
+                        bc_name = boundary_face_names[k]
+                        break
 
                 bc_type = "outlet"
-                # for k, name in enumerate(bc_names):
-                #     if name == bc_name:
-                #         bc_type = bc_types[k]
-                #         break
+                for k, name in enumerate(bc_names):
+                    if name == bc_name:
+                        bc_type = bc_types[k]
+                        break
                 U_R = equation.apply_boundary_condition(U_L, face_normal, bc_type)
-                # U_R = equation.apply_boundary_condition(U_L, face_normal)
 
             # --- Numerical Flux Calculation ---
             # The numerical flux is computed using the specified Riemann solver.
