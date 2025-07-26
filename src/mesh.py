@@ -101,7 +101,7 @@ class Mesh:
         self.node_tag_map = np.full(max_tag + 1, -1, dtype=np.int32)
         self.node_tag_map[self.node_tags] = np.arange(self.nnode, dtype=np.int32)
 
-        self._compute_cell_centroids_fastest()
+        self._compute_cell_centroids()
         self._compute_mesh_properties()
         self._compute_cell_volumes()
 
@@ -141,7 +141,7 @@ class Mesh:
             self.boundary_faces_tags = np.array(all_boundary_faces_tags)
 
     @profile
-    def _compute_cell_centroids_fastest(self):
+    def _compute_cell_centroids(self):
         """Computes the centroid of each element using vectorized operations."""
         # Use the map to convert element connectivity from tags to indices.
         elem_node_indices = self.node_tag_map[self.elem_conn]
@@ -263,14 +263,14 @@ class Mesh:
         for i in range(self.nelem):
             for j, face_nodes in enumerate(self.elem_faces[i]):
                 elems = face_to_elems[tuple(face_nodes)]
+
                 neighbor_idx = -1
                 if len(elems) > 1:
                     neighbor_idx = elems[0] if elems[1] == i else elems[1]
                 self.cell_neighbors[i, j] = neighbor_idx
 
-                # [np.where(self.node_tags == tag)[0][0] for tag in face_nodes]
+                # face mid point
                 node_indices = [self.node_tag_map[tag] for tag in face_nodes]
-
                 nodes = self.node_coords[np.array(node_indices)]
                 face_midpoint = np.mean(nodes, axis=0)
                 self.face_midpoints[i, j] = face_midpoint
