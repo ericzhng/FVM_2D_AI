@@ -386,9 +386,10 @@ class Mesh:
         print(f"Number of Nodes: {self.nnode}")
         print(f"Number of Elements: {self.nelem}")
 
+        quality = self.get_mesh_quality()
         if self.nelem > 0:
             print(f"Element Type: {self.elem_conn.shape[1]}-node elements")
-            avg_quality = np.mean(self.get_mesh_quality())
+            avg_quality = np.mean(quality)
             print(f"Average Mesh Quality (Aspect Ratio): {avg_quality:.4f}")
 
         num_boundary_sets = len(self.boundary_tag_map)
