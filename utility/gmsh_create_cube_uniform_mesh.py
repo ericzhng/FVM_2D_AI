@@ -143,9 +143,9 @@ if __name__ == "__main__":
     cube_length = 1.0
     cube_width = 1.0
     cube_height = 1.0
-    num_elements_x = 10
-    num_elements_y = 10
-    num_elements_z = 10
+    num_elements_x = 2
+    num_elements_y = 2
+    num_elements_z = 2
 
     print(
         f"Creating a structured mesh of size {cube_length}x{cube_width}x{cube_height} "

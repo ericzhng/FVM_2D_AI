@@ -132,6 +132,7 @@ class Mesh:
                     )
 
                     faces_nodes = np.array(b_node_tags[i]).reshape(-1, num_nodes)
+                    # Sort nodes within each face to ensure consistent representation
                     faces_nodes.sort(axis=1)
                     all_boundary_faces_nodes.append(faces_nodes)
                     all_boundary_faces_tags.extend([tag] * len(faces_nodes))
@@ -233,18 +234,20 @@ class Mesh:
         if faces_per_elem == 0:
             return
 
-        # Vectorized extraction and sorting of face nodes
+        # Vectorized extraction of face nodes
         face_nodes_def_arr = np.array(face_nodes_def)
         all_faces_nodes = self.elem_conn[:, face_nodes_def_arr]
-        all_faces_nodes.sort(axis=2)
         self.elem_faces = all_faces_nodes
 
-        # Build face-to-element mapping (still requires a loop)
+        # Build face-to-element mapping
         face_to_elems = {}
         for i in range(self.nelem):
             for j in range(faces_per_elem):
-                face_nodes = tuple(all_faces_nodes[i, j])
-                face_to_elems.setdefault(face_nodes, []).append(i)
+                # Sort the face nodes to create a canonical key for the dictionary
+                # This ensures that faces with the same nodes but different orderings
+                # are treated as the same face.
+                sorted_face_nodes = tuple(np.sort(all_faces_nodes[i, j]))
+                face_to_elems.setdefault(sorted_face_nodes, []).append(i)
 
         # Compute cell neighbors (loop is clearer here)
         for i in range(self.nelem):
@@ -530,7 +533,7 @@ def plot_mesh(mesh: Mesh):
 
 if __name__ == "__main__":
     try:
-        mesh_file = "./data/euler_mesh.msh"
+        mesh_file = "./data/cube_structured_mesh.msh"
 
         # New workflow
         mesh = Mesh()
