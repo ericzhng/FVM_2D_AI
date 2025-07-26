@@ -143,16 +143,24 @@ class ShallowWaterEquations:
         # Convert back to conservative variables
         return self._prim_to_cons(P_ghost)
 
-    def apply_boundary_condition(self, U_inside, normal, bc_type):
-
-        if bc_type == "wall":
+    def apply_boundary_condition(self, U_inside, normal, bc_type, bc_value):
+        # "inlet": 1
+        # "outlet": 2
+        # "wall": 3
+        # "transmissive": 4
+        if bc_type == 1:
+            U_inside[1] = bc_value[0]
+            U_inside[2] = bc_value[1]
+            return U_inside
+        elif bc_type == 2:
+            U_inside[0] = bc_value[0]
+            return U_inside
+        elif bc_type == 3:
             return self._apply_wall_bc(U_inside, normal)
-        # elif bc_type == "inlet":
-        #     return bc_info.get("value", U_inside)
-        elif bc_type == "outlet":
+        elif bc_type == 4:
             return U_inside
         else:
-            return self._apply_wall_bc(U_inside, normal)
+            raise ValueError("Invalid boundary condition type")
 
     def hllc_flux(self, U_L, U_R, normal):
         """

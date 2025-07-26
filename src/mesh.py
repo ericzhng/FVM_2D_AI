@@ -4,8 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
-from line_profiler import profile
-
 
 class Mesh:
     """
@@ -36,7 +34,6 @@ class Mesh:
         self.cell_neighbors = np.array([])
         self.elem_faces = np.array([])
 
-    @profile
     def read_mesh(self, mesh_file):
         """
         Reads the mesh file using gmsh, determines the highest dimension,
@@ -87,7 +84,6 @@ class Mesh:
         self._get_boundary_info()
         gmsh.finalize()
 
-    @profile
     def analyze_mesh(self):
         """
         Analyzes the mesh to compute all geometric and connectivity properties
@@ -105,7 +101,6 @@ class Mesh:
         self._compute_mesh_properties()
         self._compute_cell_volumes()
 
-    @profile
     def _get_boundary_info(self):
         """
         Extracts boundary faces and their corresponding physical group tags.
@@ -120,7 +115,7 @@ class Mesh:
         physical_groups = gmsh.model.getPhysicalGroups(dim=boundary_dim)
         for dim, tag in physical_groups:
             name = gmsh.model.getPhysicalName(dim, tag)
-            self.boundary_tag_map[tag] = name
+            self.boundary_tag_map[name] = tag
             entities = gmsh.model.getEntitiesForPhysicalGroup(dim, tag)
             for entity in entities:
                 b_elem_types, b_elem_tags, b_node_tags = gmsh.model.mesh.getElements(
@@ -141,7 +136,6 @@ class Mesh:
             self.boundary_faces_nodes = np.vstack(all_boundary_faces_nodes)
             self.boundary_faces_tags = np.array(all_boundary_faces_tags)
 
-    @profile
     def _compute_cell_centroids(self):
         """Computes the centroid of each element using vectorized operations."""
         # Use the map to convert element connectivity from tags to indices.
@@ -153,7 +147,6 @@ class Mesh:
         # Compute the mean over the nodes for each element to get the centroids.
         self.cell_centroids = np.mean(elem_nodes_coords, axis=1)
 
-    @profile
     def _compute_cell_volumes(self):
         """Computes the volume/area of each element."""
         if self.dim == 1:
@@ -182,7 +175,6 @@ class Mesh:
                     volume += np.dot(face_midpoint, face_normal) * face_area
                 self.cell_volumes[i] = volume / 3.0
 
-    @profile
     def _compute_mesh_properties(self):
         """
         Computes cell neighbors and face properties (normals, tangentials, areas) using vectorized operations.
@@ -344,7 +336,6 @@ class Mesh:
                         self.face_normals[i, j] = normal
                         self.face_tangentials[i, j] = tangent
 
-    @profile
     def get_mesh_quality(self, metric="aspect_ratio"):
         """
         Computes mesh quality for each element using vectorized operations.
@@ -408,7 +399,6 @@ class Mesh:
 
         return quality
 
-    @profile
     def summary(self):
         """
         Prints a summary of the mesh information.
@@ -428,12 +418,11 @@ class Mesh:
         num_boundary_sets = len(self.boundary_tag_map)
         print(f"Number of Boundary Face Sets: {num_boundary_sets}")
         if num_boundary_sets > 0:
-            for tag, name in self.boundary_tag_map.items():
+            for name, tag in self.boundary_tag_map.items():
                 count = np.sum(self.boundary_faces_tags == tag)
                 print(f"  - Boundary '{name}' (tag {tag}): {count} faces")
         print("--------------------\n")
 
-    @profile
     def get_mesh_data(self):
         """
         Returns all the computed mesh data in a dictionary.
@@ -456,7 +445,6 @@ class Mesh:
         }
 
 
-@profile
 def plot_mesh(mesh: Mesh):
     """
     Visualizes the computational mesh, including element and node labels, and face normals.

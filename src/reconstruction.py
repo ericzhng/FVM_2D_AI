@@ -1,22 +1,24 @@
 import numpy as np
-from numba import njit, prange
 from src.mesh import Mesh
 from src.euler_equations import EulerEquations  # Import the jitclass
 from line_profiler import profile
+from src.boundary import create_numba_bcs
+import numba
+from numba import prange
 
 
 # --- Limiter Functions (JIT-compiled for performance) ---
-@njit
+@numba.njit
 def barth_jespersen_limiter(r):
     return min(1.0, r)
 
 
-@njit
+@numba.njit
 def minmod_limiter(r):
     return max(0.0, min(1.0, r))
 
 
-@njit
+@numba.njit
 def superbee_limiter(r):
     return max(0.0, max(min(2.0 * r, 1.0), min(r, 2.0)))
 
@@ -31,7 +33,7 @@ LIMITERS = {
 
 
 @profile
-@njit(parallel=True)
+@numba.njit(parallel=True)
 def compute_gradients_gaussian(
     nelem,
     nvars,
@@ -107,7 +109,7 @@ def compute_gradients_gaussian(
 
 
 @profile
-@njit(parallel=True)
+@numba.njit(parallel=True)
 def compute_limiters(
     nelem,
     nvars,
@@ -175,7 +177,7 @@ def compute_limiters(
 
 
 @profile
-@njit(parallel=True)
+@numba.njit(parallel=True)
 def compute_residual_flux_loop(
     nelem,
     nvars,
@@ -185,16 +187,15 @@ def compute_residual_flux_loop(
     face_midpoints,
     cell_centroids,
     cell_volumes,
-    elem_faces,
-    boundary_face_keys,
-    boundary_face_names,
     U,
     gradients,
     limiters,
     equation,
     flux_type,
-    bc_names,
-    bc_types,
+    bcs_array,
+    elem_faces,
+    boundary_faces_nodes,
+    boundary_faces_tags,
 ):
     """
     Computes the residual for the finite volume discretization.
@@ -252,19 +253,27 @@ def compute_residual_flux_loop(
                 # --- Boundary Face ---
                 # For boundary faces, the "right" state is determined by the boundary condition.
                 # This ensures a consistent second-order treatment at the boundaries.
-                face_tuple = tuple(sorted(elem_faces[i][j]))
-                bc_name = "wall"
-                for k, bf_key in enumerate(boundary_face_keys):
-                    if bf_key == face_tuple:
-                        bc_name = boundary_face_names[k]
+
+                bcs_array,
+
+                bc_face = elem_faces[i][j]
+                for m, face_nodes in enumerate(boundary_faces_nodes):
+                    if np.all(face_nodes == bc_face):
                         break
 
-                bc_type = "outlet"
-                for k, name in enumerate(bc_names):
-                    if name == bc_name:
-                        bc_type = bc_types[k]
+                group_id_to_find = boundary_faces_tags[m]
+
+                bc_type = 3  # Default to wall
+                bc_value = np.array([0.0, 0.0, 0.0], dtype=np.float64)
+                for n in range(len(bcs_array)):
+                    if bcs_array[n][0] == group_id_to_find:
+                        bc_type = bcs_array[n][1]
+                        bc_value = bcs_array[n][2].copy()
                         break
-                U_R = equation.apply_boundary_condition(U_L, face_normal, bc_type)
+
+                U_R = equation.apply_boundary_condition(
+                    U_L, face_normal, bc_type, bc_value
+                )
 
             # --- Numerical Flux Calculation ---
             # The numerical flux is computed using the specified Riemann solver.
@@ -289,7 +298,7 @@ def compute_residual(
     mesh: Mesh,
     U: np.ndarray,
     equation,
-    boundary_conditions: dict,
+    bcs_array,
     limiter_type: str,
     flux_type: str,
     over_relaxation: float = 1.2,
@@ -325,12 +334,6 @@ def compute_residual(
         limiter_func,
     )
 
-    # Prepare Numba-compatible boundary data
-    boundary_face_keys = list(mesh.boundary_faces.keys())
-    boundary_face_names = [v["name"] for v in mesh.boundary_faces.values()]
-    bc_names = list(boundary_conditions.keys())
-    bc_types = [v["type"] for v in boundary_conditions.values()]
-
     # --- 3. Flux Integration Loop ---
     # This loop iterates through each cell, calculates the fluxes on its faces,
     # and aggregates them to compute the residual for that cell.
@@ -343,16 +346,15 @@ def compute_residual(
         mesh.face_midpoints,
         mesh.cell_centroids,
         mesh.cell_volumes,
-        mesh.elem_faces,
-        boundary_face_keys,
-        boundary_face_names,
         U,
         gradients,
         limiters,
         equation,
         flux_type,
-        bc_names,
-        bc_types,
+        bcs_array,
+        mesh.elem_faces,
+        mesh.boundary_faces_nodes,
+        mesh.boundary_faces_tags,
     )
 
     return residual

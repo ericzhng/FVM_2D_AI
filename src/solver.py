@@ -1,17 +1,19 @@
+import time
 import numpy as np
+
 from src.mesh import Mesh
 from src.time_step import calculate_adaptive_dt
 from src.visualization import plot_simulation_step
 from src.reconstruction import compute_residual
 from src.euler_equations import EulerEquations
 from src.shallow_water_equations import ShallowWaterEquations
-import time
+from src.boundary import create_numba_bcs
 
 
 def solve(
     mesh: Mesh,
     U,
-    boundary_conditions,
+    bc_dict,
     equation,
     t_end,
     limiter_type="barth_jespersen",
@@ -64,6 +66,9 @@ def solve(
     dt = dt_initial
     time_integration_method = "rk2"
 
+    # formulate bc array
+    bcs_array = create_numba_bcs(bc_dict, mesh.boundary_tag_map)
+
     while t < t_end:
         start_time = time.time()  # Start timing the loop
 
@@ -81,7 +86,7 @@ def solve(
                 mesh,
                 U,
                 equation,
-                boundary_conditions,
+                bcs_array,
                 limiter_type,
                 flux_type,
                 over_relaxation,
@@ -94,7 +99,7 @@ def solve(
                 mesh,
                 U_star,
                 equation,
-                boundary_conditions,
+                bcs_array,
                 limiter_type,
                 flux_type,
                 over_relaxation,
@@ -108,7 +113,7 @@ def solve(
                 mesh,
                 U,
                 equation,
-                boundary_conditions,
+                bcs_array,
                 limiter_type,
                 flux_type,
                 over_relaxation,

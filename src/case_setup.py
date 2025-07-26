@@ -1,3 +1,4 @@
+from typing import Dict, Union
 import numpy as np
 from src.mesh import Mesh
 
@@ -56,10 +57,10 @@ def setup_case_shallow_water(mesh: Mesh):
     # Define boundary conditions - using transmissive (outlet) for all boundaries
     # is common for this type of Riemann problem to allow waves to exit the domain.
     boundary_conditions = {
-        "top": {"type": "outlet"},
-        "bottom": {"type": "outlet"},
-        "left": {"type": "outlet"},
-        "right": {"type": "outlet"},
+        "top": {"type": "transmissive"},
+        "bottom": {"type": "transmissive"},
+        "left": {"type": "transmissive"},
+        "right": {"type": "transmissive"},
     }
 
     return U, boundary_conditions
@@ -114,11 +115,11 @@ def setup_case_euler(mesh: Mesh, gamma=1.4):
 
     # Define boundary conditions - using transmissive (outlet) for all boundaries
     # is common for this type of Riemann problem.
-    boundary_conditions = {
-        "top": {"type": "outlet"},
-        "bottom": {"type": "outlet"},
-        "left": {"type": "outlet"},
-        "right": {"type": "outlet"},
+    boundary_conditions: Dict[str, Dict[str, Union[str, float, bool]]] = {
+        "top": {"type": "transmissive"},
+        "bottom": {"type": "transmissive"},
+        "left": {"type": "transmissive"},
+        "right": {"type": "transmissive"},
     }
 
     return U, boundary_conditions

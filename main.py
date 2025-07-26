@@ -30,11 +30,11 @@ def main():
     equation_type = "euler"  # Choose 'shallow_water' or 'euler'
 
     if equation_type == "shallow_water":
-        U_init, boundary_conditions = setup_case_shallow_water(mesh)
+        U_init, bc_dict = setup_case_shallow_water(mesh)
         equation = ShallowWaterEquations(g=9.81)
         t_end = 20
     elif equation_type == "euler":
-        U_init, boundary_conditions = setup_case_euler(mesh)
+        U_init, bc_dict = setup_case_euler(mesh)
         equation = EulerEquations(gamma=1.4)
         t_end = 0.25
     else:
@@ -45,7 +45,7 @@ def main():
     history, dt_history = solve(
         mesh,
         U_init,
-        boundary_conditions,
+        bc_dict,
         equation,
         t_end=t_end,
         limiter_type="minmod",  # Options: 'barth_jespersen', 'minmod', 'superbee'
