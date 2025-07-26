@@ -1,10 +1,11 @@
 import numpy as np
 from src.mesh import Mesh
 from src.euler_equations import EulerEquations  # Import the jitclass
-from line_profiler import profile
 from src.boundary import create_numba_bcs
+
 import numba
 from numba import prange
+from line_profiler import profile
 
 
 # --- Limiter Functions (JIT-compiled for performance) ---
