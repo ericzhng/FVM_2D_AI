@@ -1,8 +1,9 @@
-import numpy as np
 import gmsh
+import numpy as np
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
+
 from line_profiler import profile
 
 
@@ -29,7 +30,9 @@ class Mesh:
         self.face_normals = np.array([])
         self.face_tangentials = np.array([])
         self.face_areas = np.array([])
-        self.boundary_faces = {}
+        self.boundary_faces_nodes = np.array([])
+        self.boundary_faces_tags = np.array([])
+        self.boundary_tag_map = {}
         self.cell_neighbors = np.array([])
         self.elem_faces = np.array([])
 
@@ -76,6 +79,11 @@ class Mesh:
             )
             self.nelem = len(self.elem_tags)
 
+        # np.save("tests/elem_conn.npy", self.elem_conn)
+        # np.save("tests/node_coords.npy", self.node_coords)
+        # np.save("tests/node_tags.npy", self.node_tags)
+        # np.save("tests/elem_tags.npy", self.elem_tags)
+
         self._get_boundary_info()
         gmsh.finalize()
 
@@ -94,8 +102,6 @@ class Mesh:
         self.node_tag_map[self.node_tags] = np.arange(self.nnode, dtype=np.int32)
 
         self._compute_cell_centroids_fastest()
-        # self._compute_cell_centroids()
-        # self._compute_cell_centroids_old()
         self._compute_mesh_properties()
         self._compute_cell_volumes()
 
@@ -108,9 +114,13 @@ class Mesh:
         if boundary_dim < 0:
             return
 
+        all_boundary_faces_nodes = []
+        all_boundary_faces_tags = []
+
         physical_groups = gmsh.model.getPhysicalGroups(dim=boundary_dim)
         for dim, tag in physical_groups:
             name = gmsh.model.getPhysicalName(dim, tag)
+            self.boundary_tag_map[tag] = name
             entities = gmsh.model.getEntitiesForPhysicalGroup(dim, tag)
             for entity in entities:
                 b_elem_types, b_elem_tags, b_node_tags = gmsh.model.mesh.getElements(
@@ -122,30 +132,13 @@ class Mesh:
                     )
 
                     faces_nodes = np.array(b_node_tags[i]).reshape(-1, num_nodes)
-                    for face_nodes in faces_nodes:
-                        face = tuple(sorted(face_nodes))
-                        self.boundary_faces[face] = {"name": name, "tag": tag}
+                    faces_nodes.sort(axis=1)
+                    all_boundary_faces_nodes.append(faces_nodes)
+                    all_boundary_faces_tags.extend([tag] * len(faces_nodes))
 
-    @profile
-    def _compute_cell_centroids_old(self):
-        """Computes the centroid of each element."""
-        self.cell_centroids = np.zeros((self.nelem, 3))
-        for i, elem_nodes_tags in enumerate(self.elem_conn):
-            node_indices = [
-                np.where(self.node_tags == tag)[0][0] for tag in elem_nodes_tags
-            ]
-            nodes = self.node_coords[np.array(node_indices)]
-            self.cell_centroids[i] = np.mean(nodes, axis=0)
-
-    @profile
-    def _compute_cell_centroids(self):
-        """Computes the centroid of each element."""
-        self.cell_centroids = np.zeros((self.nelem, 3))
-
-        for i, elem_nodes_tags in enumerate(self.elem_conn):
-            node_indices = [self.node_tag_map[tag] for tag in elem_nodes_tags]
-            nodes = self.node_coords[node_indices]
-            self.cell_centroids[i] = np.mean(nodes, axis=0)
+        if all_boundary_faces_nodes:
+            self.boundary_faces_nodes = np.vstack(all_boundary_faces_nodes)
+            self.boundary_faces_tags = np.array(all_boundary_faces_tags)
 
     @profile
     def _compute_cell_centroids_fastest(self):
@@ -391,18 +384,11 @@ class Mesh:
             avg_quality = np.mean(self.get_mesh_quality())
             print(f"Average Mesh Quality (Aspect Ratio): {avg_quality:.4f}")
 
-        num_boundary_sets = len(
-            np.unique([f["tag"] for f in self.boundary_faces.values()])
-        )
+        num_boundary_sets = len(self.boundary_tag_map)
         print(f"Number of Boundary Face Sets: {num_boundary_sets}")
         if num_boundary_sets > 0:
-            for tag in np.unique([f["tag"] for f in self.boundary_faces.values()]):
-                name = [
-                    f["name"] for f in self.boundary_faces.values() if f["tag"] == tag
-                ][0]
-                count = len(
-                    [f for f in self.boundary_faces.values() if f["tag"] == tag]
-                )
+            for tag, name in self.boundary_tag_map.items():
+                count = np.sum(self.boundary_faces_tags == tag)
                 print(f"  - Boundary '{name}' (tag {tag}): {count} faces")
         print("--------------------\n")
 
@@ -420,7 +406,9 @@ class Mesh:
             "cell_volumes": self.cell_volumes,
             "cell_centroids": self.cell_centroids,
             "cell_neighbors": self.cell_neighbors,
-            "boundary_faces": self.boundary_faces,
+            "boundary_faces_nodes": self.boundary_faces_nodes,
+            "boundary_faces_tags": self.boundary_faces_tags,
+            "boundary_tag_map": self.boundary_tag_map,
             "face_areas": self.face_areas,
             "face_normals": self.face_normals,
             "face_tangentials": self.face_tangentials,
