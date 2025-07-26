@@ -1,11 +1,6 @@
 import numpy as np
 import time
 import unittest
-import sys
-import os
-
-# Add the src directory to the Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
 class TestEulerEquations(unittest.TestCase):
@@ -14,7 +9,7 @@ class TestEulerEquations(unittest.TestCase):
     """
 
     def setUp(self):
-        self.node_tags = np.load("tests/nodetags.npy")
+        self.node_tags = np.load("tests/node_tags.npy")
         self.nnode = len(self.node_tags)
 
     def test_compare(self):
