@@ -49,7 +49,7 @@ def main():
         equation,
         t_end=t_end,
         limiter_type="minmod",  # Options: 'barth_jespersen', 'minmod', 'superbee'
-        flux_type="hllc",
+        flux_type="roe",
         over_relaxation=1.0,
         use_adaptive_dt=True,
         cfl=0.5,
@@ -57,12 +57,12 @@ def main():
     )
     print("Solver finished.")
 
-    # # --- 4. Visualize ---
-    # print("Creating animation of the results...")
-    # create_animation(mesh, history, dt_history, variable_to_plot=0)
+    # --- 4. Visualize ---
+    print("Creating animation of the results...")
+    create_animation(mesh, history, dt_history, variable_to_plot=0)
 
-    # for k in range(U_init.shape[1]):
-    #     plot_simulation_step(mesh, history[-1], "Final State", variable_to_plot=k)
+    for k in range(U_init.shape[1]):
+        plot_simulation_step(mesh, history[-1], "Final State", variable_to_plot=k)
 
 
 if __name__ == "__main__":
