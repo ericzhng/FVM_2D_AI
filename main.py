@@ -20,14 +20,14 @@ def main():
     # --- 1. Initialize and Read Mesh ---
     print("Initializing and reading mesh...")
     mesh = Mesh()
-    mesh.read_mesh("data/river_triangular.msh")
+    mesh.read_mesh("data/euler_mesh.msh")
     mesh.analyze_mesh()
     mesh.summary()
     # plot_mesh(mesh)  # Optional: Uncomment to visualize the mesh and check normals
 
     # --- 2. Set Up Case ---
     print("Setting up the simulation case...")
-    equation_type = "shallow_water"  # Choose 'shallow_water' or 'euler'
+    equation_type = "euler"  # Choose 'shallow_water' or 'euler'
 
     if equation_type == "shallow_water":
         U_init, boundary_conditions = setup_case_shallow_water(mesh)
@@ -57,12 +57,12 @@ def main():
     )
     print("Solver finished.")
 
-    # --- 4. Visualize ---
-    print("Creating animation of the results...")
-    create_animation(mesh, history, dt_history, variable_to_plot=0)
+    # # --- 4. Visualize ---
+    # print("Creating animation of the results...")
+    # create_animation(mesh, history, dt_history, variable_to_plot=0)
 
-    for k in range(U_init.shape[1]):
-        plot_simulation_step(mesh, history[-1], "Final State", variable_to_plot=k)
+    # for k in range(U_init.shape[1]):
+    #     plot_simulation_step(mesh, history[-1], "Final State", variable_to_plot=k)
 
 
 if __name__ == "__main__":

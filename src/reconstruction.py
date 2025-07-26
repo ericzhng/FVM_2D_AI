@@ -2,6 +2,7 @@ import numpy as np
 from numba import njit, prange
 from src.mesh import Mesh
 from src.euler_equations import EulerEquations  # Import the jitclass
+from line_profiler import profile
 
 
 # --- Limiter Functions (JIT-compiled for performance) ---
@@ -29,6 +30,7 @@ LIMITERS = {
 # --- Parallelized Core Functions ---
 
 
+@profile
 @njit(parallel=True)
 def compute_gradients_gaussian(
     nelem,
@@ -104,6 +106,7 @@ def compute_gradients_gaussian(
     return gradients
 
 
+@profile
 @njit(parallel=True)
 def compute_limiters(
     nelem,
@@ -171,6 +174,7 @@ def compute_limiters(
     return limiters
 
 
+@profile
 @njit(parallel=True)
 def compute_residual_flux_loop(
     nelem,
@@ -181,7 +185,7 @@ def compute_residual_flux_loop(
     face_midpoints,
     cell_centroids,
     cell_volumes,
-    # elem_faces,
+    elem_faces,
     boundary_face_keys,
     boundary_face_names,
     U,
@@ -281,6 +285,7 @@ def compute_residual_flux_loop(
     return residual
 
 
+@profile
 def compute_residual(
     mesh: Mesh,
     U: np.ndarray,
@@ -339,7 +344,7 @@ def compute_residual(
         mesh.face_midpoints,
         mesh.cell_centroids,
         mesh.cell_volumes,
-        # mesh.elem_faces,
+        mesh.elem_faces,
         boundary_face_keys,
         boundary_face_names,
         U,

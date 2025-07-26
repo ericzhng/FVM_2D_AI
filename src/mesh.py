@@ -259,12 +259,13 @@ class Mesh:
             all_faces_nodes = self.elem_conn[:, face_nodes_def_arr]
             all_faces_nodes.sort(axis=2)
 
-            # Pre-allocate self.elem_faces as a list of lists
-            self.elem_faces = [[None] * faces_per_elem for _ in range(self.nelem)]
+            # Store elem_faces directly as a NumPy array
+            self.elem_faces = all_faces_nodes
+
+            # This loop is still necessary to build the face-to-element mapping
             for i in range(self.nelem):
                 for j in range(faces_per_elem):
                     face_nodes = tuple(all_faces_nodes[i, j])
-                    self.elem_faces[i][j] = face_nodes
                     face_to_elems.setdefault(face_nodes, []).append(i)
 
         # Compute cell neighbors
@@ -376,6 +377,7 @@ class Mesh:
                     quality[i] = float("inf")
         return quality
 
+    @profile
     def summary(self):
         """
         Prints a summary of the mesh information.
@@ -406,6 +408,7 @@ class Mesh:
                 print(f"  - Boundary '{name}' (tag {tag}): {count} faces")
         print("--------------------\n")
 
+    @profile
     def get_mesh_data(self):
         """
         Returns all the computed mesh data in a dictionary.
@@ -426,6 +429,7 @@ class Mesh:
         }
 
 
+@profile
 def plot_mesh(mesh: Mesh):
     """
     Visualizes the computational mesh, including element and node labels, and face normals.
