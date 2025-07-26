@@ -252,7 +252,7 @@ class Mesh:
         # Compute cell neighbors (loop is clearer here)
         for i in range(self.nelem):
             for j, face_nodes in enumerate(self.elem_faces[i]):
-                elems = face_to_elems[tuple(face_nodes)]
+                elems = face_to_elems[tuple(np.sort(face_nodes))]
                 if len(elems) > 1:
                     self.cell_neighbors[i, j] = elems[0] if elems[1] == i else elems[1]
 
