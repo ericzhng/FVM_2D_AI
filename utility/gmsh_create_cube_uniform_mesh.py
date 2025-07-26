@@ -4,7 +4,14 @@ import os
 
 
 def create_and_mesh_cube(
-    length, width, height, nx, ny, nz, filename="data/cube_mesh.msh"
+    length,
+    width,
+    height,
+    nx,
+    ny,
+    nz,
+    filename="data/cube_mesh.msh",
+    mesh_type="structured",
 ):
     """
     Creates a cube and meshes it with a structured grid of hexahedral elements.
@@ -61,42 +68,52 @@ def create_and_mesh_cube(
     cl6 = gmsh.model.geo.addCurveLoop([l4, l9, -l8, -l12])  # Left
     s6 = gmsh.model.geo.addPlaneSurface([cl6])
 
-
     # Create a surface loop and a volume
     sl = gmsh.model.geo.addSurfaceLoop([s1, s2, s3, s4, s5, s6])
     v = gmsh.model.geo.addVolume([sl])
 
-    # Use the Transfinite algorithm for a structured mesh
-    gmsh.model.geo.mesh.setTransfiniteCurve(l1, nx + 1)
-    gmsh.model.geo.mesh.setTransfiniteCurve(l3, nx + 1)
-    gmsh.model.geo.mesh.setTransfiniteCurve(l5, nx + 1)
-    gmsh.model.geo.mesh.setTransfiniteCurve(l7, nx + 1)
+    if mesh_type == "structured":
+        # Use the Transfinite algorithm for a structured mesh
+        gmsh.model.geo.mesh.setTransfiniteCurve(l1, nx + 1)
+        gmsh.model.geo.mesh.setTransfiniteCurve(l3, nx + 1)
+        gmsh.model.geo.mesh.setTransfiniteCurve(l5, nx + 1)
+        gmsh.model.geo.mesh.setTransfiniteCurve(l7, nx + 1)
 
-    gmsh.model.geo.mesh.setTransfiniteCurve(l2, ny + 1)
-    gmsh.model.geo.mesh.setTransfiniteCurve(l4, ny + 1)
-    gmsh.model.geo.mesh.setTransfiniteCurve(l6, ny + 1)
-    gmsh.model.geo.mesh.setTransfiniteCurve(l8, ny + 1)
+        gmsh.model.geo.mesh.setTransfiniteCurve(l2, ny + 1)
+        gmsh.model.geo.mesh.setTransfiniteCurve(l4, ny + 1)
+        gmsh.model.geo.mesh.setTransfiniteCurve(l6, ny + 1)
+        gmsh.model.geo.mesh.setTransfiniteCurve(l8, ny + 1)
 
-    gmsh.model.geo.mesh.setTransfiniteCurve(l9, nz + 1)
-    gmsh.model.geo.mesh.setTransfiniteCurve(l10, nz + 1)
-    gmsh.model.geo.mesh.setTransfiniteCurve(l11, nz + 1)
-    gmsh.model.geo.mesh.setTransfiniteCurve(l12, nz + 1)
+        gmsh.model.geo.mesh.setTransfiniteCurve(l9, nz + 1)
+        gmsh.model.geo.mesh.setTransfiniteCurve(l10, nz + 1)
+        gmsh.model.geo.mesh.setTransfiniteCurve(l11, nz + 1)
+        gmsh.model.geo.mesh.setTransfiniteCurve(l12, nz + 1)
 
-    gmsh.model.geo.mesh.setTransfiniteSurface(s1)
-    gmsh.model.geo.mesh.setRecombine(2, s1)
-    gmsh.model.geo.mesh.setTransfiniteSurface(s2)
-    gmsh.model.geo.mesh.setRecombine(2, s2)
-    gmsh.model.geo.mesh.setTransfiniteSurface(s3)
-    gmsh.model.geo.mesh.setRecombine(2, s3)
-    gmsh.model.geo.mesh.setTransfiniteSurface(s4)
-    gmsh.model.geo.mesh.setRecombine(2, s4)
-    gmsh.model.geo.mesh.setTransfiniteSurface(s5)
-    gmsh.model.geo.mesh.setRecombine(2, s5)
-    gmsh.model.geo.mesh.setTransfiniteSurface(s6)
-    gmsh.model.geo.mesh.setRecombine(2, s6)
+        gmsh.model.geo.mesh.setTransfiniteSurface(s1)
+        gmsh.model.geo.mesh.setRecombine(2, s1)
+        gmsh.model.geo.mesh.setTransfiniteSurface(s2)
+        gmsh.model.geo.mesh.setRecombine(2, s2)
+        gmsh.model.geo.mesh.setTransfiniteSurface(s3)
+        gmsh.model.geo.mesh.setRecombine(2, s3)
+        gmsh.model.geo.mesh.setTransfiniteSurface(s4)
+        gmsh.model.geo.mesh.setRecombine(2, s4)
+        gmsh.model.geo.mesh.setTransfiniteSurface(s5)
+        gmsh.model.geo.mesh.setRecombine(2, s5)
+        gmsh.model.geo.mesh.setTransfiniteSurface(s6)
+        gmsh.model.geo.mesh.setRecombine(2, s6)
 
-    gmsh.model.geo.mesh.setTransfiniteVolume(v)
-    gmsh.model.mesh.setRecombine(3, v)
+        gmsh.model.geo.mesh.setTransfiniteVolume(v)
+        gmsh.model.mesh.setRecombine(3, v)
+    elif mesh_type == "unstructured":
+        # For unstructured mesh, we can set a global mesh size factor
+        # or use a different algorithm.
+        # Here, we'll use the default unstructured algorithm (Delaunay)
+        # and set a characteristic length.
+        gmsh.option.setNumber("Mesh.Algorithm", 6)  # Delaunay
+        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", 0.1)
+        gmsh.option.setNumber("Mesh.CharacteristicLengthMax", 0.1)
+    else:
+        raise ValueError("Invalid mesh_type. Choose 'structured' or 'unstructured'.")
 
     gmsh.model.geo.synchronize()
 
@@ -141,6 +158,22 @@ if __name__ == "__main__":
         num_elements_x,
         num_elements_y,
         num_elements_z,
-        filename="data/cube_mesh.msh",
+        filename="data/cube_structured_mesh.msh",
+        mesh_type="structured",
+    )
+
+    print(
+        f"Creating an unstructured mesh of size {cube_length}x{cube_width}x{cube_height} "
+        f"with characteristic length 0.1."
+    )
+    create_and_mesh_cube(
+        cube_length,
+        cube_width,
+        cube_height,
+        num_elements_x,  # These will be ignored for unstructured mesh
+        num_elements_y,  # These will be ignored for unstructured mesh
+        num_elements_z,  # These will be ignored for unstructured mesh
+        filename="data/cube_unstructured_mesh.msh",
+        mesh_type="unstructured",
     )
     print("\nScript finished.")
