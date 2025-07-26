@@ -181,8 +181,6 @@ class Mesh:
                     face_area = self.face_areas[i, j]
                     volume += np.dot(face_midpoint, face_normal) * face_area
                 self.cell_volumes[i] = volume / 3.0
-        else:
-            self.cell_volumes = np.zeros(self.nelem)
 
     @profile
     def _compute_mesh_properties(self):
@@ -314,15 +312,27 @@ class Mesh:
                     nodes = self.node_coords[node_indices]
 
                     if len(nodes) >= 3:
-                        v1 = nodes[1] - nodes[0]
-                        v2 = nodes[2] - nodes[0]
-                        normal = np.cross(v1, v2)
-                        area = np.linalg.norm(normal) / 2.0
+                        if len(nodes) == 3:  # Triangular face
+                            v_diag1 = nodes[1] - nodes[0]
+                            v_diag2 = nodes[2] - nodes[0]
+                            normal = np.cross(v_diag1, v_diag2)
+                            area = np.linalg.norm(normal) / 2.0
+                        elif len(nodes) == 4:  # Quadrilateral face
+                            # Calculate normal and area using diagonals
+                            v_diag1 = nodes[2] - nodes[0]  # P0 to P2
+                            v_diag2 = nodes[3] - nodes[1]  # P1 to P3
+                            normal = np.cross(v_diag1, v_diag2)
+                            area = np.linalg.norm(normal) / 2.0
+                        else:
+                            # Handle other polygon types or raise an error
+                            raise NotImplementedError(
+                                f"Face with {len(nodes)} nodes not supported for 3D area calculation."
+                            )
                         self.face_areas[i, j] = area
 
                         if area > 1e-9:
                             normal /= 2.0 * area
-                            tangent = v1 / np.linalg.norm(v1)
+                            tangent = v_diag1 / np.linalg.norm(v_diag1)
                         else:
                             normal = np.zeros(3)
                             tangent = np.zeros(3)
@@ -533,7 +543,7 @@ def plot_mesh(mesh: Mesh):
 
 if __name__ == "__main__":
     try:
-        mesh_file = "./data/cube_structured_mesh.msh"
+        mesh_file = "./data/euler_mesh.msh"
 
         # New workflow
         mesh = Mesh()
@@ -552,4 +562,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"An error occurred: {e}")
 
-    # plot_mesh(mesh)
+    if mesh.dim == 2:
+        plot_mesh(mesh)

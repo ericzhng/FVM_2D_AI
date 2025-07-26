@@ -110,8 +110,8 @@ def create_and_mesh_cube(
         # Here, we'll use the default unstructured algorithm (Delaunay)
         # and set a characteristic length.
         gmsh.option.setNumber("Mesh.Algorithm", 6)  # Delaunay
-        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", 0.1)
-        gmsh.option.setNumber("Mesh.CharacteristicLengthMax", 0.1)
+        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", 0.4)
+        gmsh.option.setNumber("Mesh.CharacteristicLengthMax", 0.4)
     else:
         raise ValueError("Invalid mesh_type. Choose 'structured' or 'unstructured'.")
 
