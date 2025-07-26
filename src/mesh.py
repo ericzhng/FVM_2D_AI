@@ -334,45 +334,65 @@ class Mesh:
     @profile
     def get_mesh_quality(self, metric="aspect_ratio"):
         """
-        Computes mesh quality for each element.
+        Computes mesh quality for each element using vectorized operations.
         """
-        quality = np.zeros(self.nelem)
         if self.dim == 1:
             return np.ones(self.nelem)
+        if self.nelem == 0:
+            return np.array([])
 
-        for i, elem_nodes_tags in enumerate(self.elem_conn):
-            node_indices = [self.node_tag_map[tag] for tag in elem_nodes_tags]
-            # node_indices = [
-            #     np.where(self.node_tags == tag)[0][0] for tag in elem_nodes_tags
-            # ]
-            nodes = self.node_coords[np.array(node_indices)]
+        quality = np.zeros(self.nelem)
 
-            rolled_nodes = np.roll(nodes, -1, axis=0)
-            edge_lengths = np.linalg.norm(nodes - rolled_nodes, axis=1)
+        if self.dim == 2:
+            # Vectorized calculation for 2D elements
+            elem_node_indices = self.node_tag_map[self.elem_conn]
+            elem_nodes_coords = self.node_coords[elem_node_indices]
 
-            if self.dim == 2:
-                if min(edge_lengths) > 1e-9:
-                    quality[i] = max(edge_lengths) / min(edge_lengths)
-                else:
-                    quality[i] = float("inf")
-            elif self.dim == 3:
-                # Simple aspect ratio for 3D: longest edge / shortest edge
-                all_edge_lengths = []
-                for face in self.elem_faces[i]:
-                    face_node_indices = [self.node_tag_map[tag] for tag in face]
-                    # face_node_indices = [
-                    #     np.where(self.node_tags == tag)[0][0] for tag in face
-                    # ]
-                    face_nodes_coords = self.node_coords[np.array(face_node_indices)]
-                    for k in range(len(face_nodes_coords)):
-                        p1 = face_nodes_coords[k]
-                        p2 = face_nodes_coords[(k + 1) % len(face_nodes_coords)]
-                        all_edge_lengths.append(np.linalg.norm(p1 - p2))
+            rolled_nodes = np.roll(elem_nodes_coords, -1, axis=1)
+            edge_lengths = np.linalg.norm(elem_nodes_coords - rolled_nodes, axis=2)
 
-                if min(all_edge_lengths) > 1e-9:
-                    quality[i] = max(all_edge_lengths) / min(all_edge_lengths)
-                else:
-                    quality[i] = float("inf")
+            min_edge_lengths = np.min(edge_lengths, axis=1)
+            max_edge_lengths = np.max(edge_lengths, axis=1)
+
+            # Avoid division by zero
+            quality = np.divide(
+                max_edge_lengths,
+                min_edge_lengths,
+                out=np.full(self.nelem, float("inf")),
+                where=min_edge_lengths > 1e-9,
+            )
+
+        elif self.dim == 3:
+            # Vectorized calculation for 3D elements
+            # This is more complex as it involves edges of faces.
+            face_node_indices = self.node_tag_map[self.elem_faces]
+            face_nodes_coords = self.node_coords[
+                face_node_indices
+            ]  # (nelem, nfaces, nnodes_per_face, 3)
+
+            # Roll nodes within each face to compute edge vectors
+            rolled_face_nodes = np.roll(face_nodes_coords, -1, axis=2)
+            edge_vectors = face_nodes_coords - rolled_face_nodes
+
+            # Calculate lengths of all edges for all faces of all elements
+            face_edge_lengths = np.linalg.norm(
+                edge_vectors, axis=3
+            )  # (nelem, nfaces, nnodes_per_face)
+
+            # Reshape to group all edge lengths for each element
+            all_edge_lengths = face_edge_lengths.reshape(self.nelem, -1)
+
+            min_edge_lengths = np.min(all_edge_lengths, axis=1)
+            max_edge_lengths = np.max(all_edge_lengths, axis=1)
+
+            # Avoid division by zero
+            quality = np.divide(
+                max_edge_lengths,
+                min_edge_lengths,
+                out=np.full(self.nelem, float("inf")),
+                where=min_edge_lengths > 1e-9,
+            )
+
         return quality
 
     @profile
@@ -529,4 +549,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"An error occurred: {e}")
 
-    plot_mesh(mesh)
+    # plot_mesh(mesh)
