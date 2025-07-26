@@ -186,9 +186,8 @@ class Mesh:
     @profile
     def _compute_mesh_properties(self):
         """
-        Computes cell neighbors and face properties (normals, tangentials, areas).
+        Computes cell neighbors and face properties (normals, tangentials, areas) using vectorized operations.
         """
-        face_to_elems = {}
         face_definitions = {
             "tet": [[0, 1, 2], [0, 3, 1], [1, 3, 2], [2, 3, 0]],
             "hex": [
@@ -231,98 +230,106 @@ class Mesh:
         self.face_midpoints = np.zeros((self.nelem, faces_per_elem, 3))
         self.face_to_cell_distances = np.zeros((self.nelem, faces_per_elem, 2))
 
-        # # Old method
-        # for i in range(self.nelem):
-        #     elem_nodes = self.elem_conn[i]
-        #     for j in range(faces_per_elem):
-        #         face_node_indices = face_nodes_def[j]
-        #         face_nodes = tuple(sorted(elem_nodes[k] for k in face_node_indices))
+        if faces_per_elem == 0:
+            return
 
-        #         self.elem_faces[i].append(face_nodes)
-        #         if face_nodes not in face_to_elems:
-        #             face_to_elems[face_nodes] = []
-        #         face_to_elems[face_nodes].append(i)
+        # Vectorized extraction and sorting of face nodes
+        face_nodes_def_arr = np.array(face_nodes_def)
+        all_faces_nodes = self.elem_conn[:, face_nodes_def_arr]
+        all_faces_nodes.sort(axis=2)
+        self.elem_faces = all_faces_nodes
 
-        # New method
-        if faces_per_elem > 0:
-            # Vectorized extraction and sorting of face nodes
-            face_nodes_def_arr = np.array(face_nodes_def)
-            all_faces_nodes = self.elem_conn[:, face_nodes_def_arr]
-            all_faces_nodes.sort(axis=2)
+        # Build face-to-element mapping (still requires a loop)
+        face_to_elems = {}
+        for i in range(self.nelem):
+            for j in range(faces_per_elem):
+                face_nodes = tuple(all_faces_nodes[i, j])
+                face_to_elems.setdefault(face_nodes, []).append(i)
 
-            # Store elem_faces directly as a NumPy array
-            self.elem_faces = all_faces_nodes
-
-            # This loop is still necessary to build the face-to-element mapping
-            for i in range(self.nelem):
-                for j in range(faces_per_elem):
-                    face_nodes = all_faces_nodes[i, j]
-                    face_to_elems.setdefault(tuple(face_nodes), []).append(i)
-
-        # Compute cell neighbors
+        # Compute cell neighbors (loop is clearer here)
         for i in range(self.nelem):
             for j, face_nodes in enumerate(self.elem_faces[i]):
                 elems = face_to_elems[tuple(face_nodes)]
-
-                neighbor_idx = -1
                 if len(elems) > 1:
-                    neighbor_idx = elems[0] if elems[1] == i else elems[1]
-                self.cell_neighbors[i, j] = neighbor_idx
+                    self.cell_neighbors[i, j] = elems[0] if elems[1] == i else elems[1]
 
-                # face mid point
-                node_indices = [self.node_tag_map[tag] for tag in face_nodes]
-                nodes = self.node_coords[np.array(node_indices)]
-                face_midpoint = np.mean(nodes, axis=0)
-                self.face_midpoints[i, j] = face_midpoint
+        # Vectorized computation of face midpoints and distances
+        face_node_indices = self.node_tag_map[self.elem_faces]
+        face_node_coords = self.node_coords[face_node_indices]
+        self.face_midpoints = np.mean(face_node_coords, axis=2)
 
-                d_i = np.linalg.norm(face_midpoint - self.cell_centroids[i])
-                d_j = (
-                    np.linalg.norm(face_midpoint - self.cell_centroids[neighbor_idx])
-                    if neighbor_idx != -1
-                    else 0
-                )
-                self.face_to_cell_distances[i, j] = [d_i, d_j]
+        cell_centroids_reshaped = self.cell_centroids[:, np.newaxis, :]
+        d_i = np.linalg.norm(self.face_midpoints - cell_centroids_reshaped, axis=2)
 
-                if self.dim == 2:
-                    p1, p2 = nodes[0], nodes[1]
-                    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
-                    length = np.sqrt(dx * dx + dy * dy)
-                    self.face_areas[i, j] = length
-                    normal = (
-                        np.array([dy / length, -dx / length, 0])
-                        if length > 1e-9
-                        else np.zeros(3)
-                    )
-                    tangent = (
-                        np.array([dx / length, dy / length, 0])
-                        if length > 1e-9
-                        else np.zeros(3)
-                    )
+        valid_neighbors_mask = self.cell_neighbors != -1
+        neighbor_indices = np.maximum(self.cell_neighbors, 0)
+        neighbor_centroids = self.cell_centroids[neighbor_indices]
+        d_j_all = np.linalg.norm(self.face_midpoints - neighbor_centroids, axis=2)
+        d_j = np.where(valid_neighbors_mask, d_j_all, 0)
 
-                    if np.dot(normal, face_midpoint - self.cell_centroids[i]) < 0:
-                        normal = -normal
-                    self.face_normals[i, j] = normal
-                    self.face_tangentials[i, j] = tangent
+        self.face_to_cell_distances = np.stack([d_i, d_j], axis=-1)
 
-                elif self.dim == 3 and len(nodes) >= 3:
-                    v1 = nodes[1] - nodes[0]
-                    v2 = nodes[2] - nodes[0]
-                    normal = np.cross(v1, v2)
-                    area = np.linalg.norm(normal) / 2.0
-                    self.face_areas[i, j] = area
+        # Vectorized computation of face normals and areas
+        if self.dim == 2:
+            p1 = face_node_coords[:, :, 0, :]
+            p2 = face_node_coords[:, :, 1, :]
+            delta = p2 - p1
+            dx, dy = delta[:, :, 0], delta[:, :, 1]
 
-                    if area > 1e-9:
-                        normal /= 2.0 * area
-                        tangent = v1 / np.linalg.norm(v1)
-                    else:
-                        normal = np.zeros(3)
-                        tangent = np.zeros(3)
+            self.face_areas = np.sqrt(dx**2 + dy**2)
 
-                    face_midpoint = np.mean(nodes, axis=0)
-                    if np.dot(normal, face_midpoint - self.cell_centroids[i]) < 0:
-                        normal = -normal
-                    self.face_normals[i, j] = normal
-                    self.face_tangentials[i, j] = tangent
+            # Avoid division by zero for normals and tangents
+            length = self.face_areas
+            inv_length = np.divide(
+                1.0, length, where=length > 1e-9, out=np.zeros_like(length)
+            )
+
+            self.face_normals[:, :, 0] = dy * inv_length
+            self.face_normals[:, :, 1] = -dx * inv_length
+
+            self.face_tangentials[:, :, 0] = dx * inv_length
+            self.face_tangentials[:, :, 1] = dy * inv_length
+
+            # Ensure normals point outwards
+            dot_product = np.einsum(
+                "ijk,ijk->ij",
+                self.face_normals,
+                self.face_midpoints - cell_centroids_reshaped,
+            )
+            correction_mask = (dot_product < 0)[:, :, np.newaxis]
+            self.face_normals = np.where(
+                correction_mask, -self.face_normals, self.face_normals
+            )
+
+        elif self.dim == 3:
+            # The 3D case is more complex due to variable nodes per face (tris/quads).
+            # A loop is more straightforward here and likely not the main bottleneck
+            # compared to the previous implementation.
+            for i in range(self.nelem):
+                for j, face_nodes in enumerate(self.elem_faces[i]):
+                    node_indices = self.node_tag_map[face_nodes]
+                    nodes = self.node_coords[node_indices]
+
+                    if len(nodes) >= 3:
+                        v1 = nodes[1] - nodes[0]
+                        v2 = nodes[2] - nodes[0]
+                        normal = np.cross(v1, v2)
+                        area = np.linalg.norm(normal) / 2.0
+                        self.face_areas[i, j] = area
+
+                        if area > 1e-9:
+                            normal /= 2.0 * area
+                            tangent = v1 / np.linalg.norm(v1)
+                        else:
+                            normal = np.zeros(3)
+                            tangent = np.zeros(3)
+
+                        face_midpoint = self.face_midpoints[i, j]
+                        if np.dot(normal, face_midpoint - self.cell_centroids[i]) < 0:
+                            normal = -normal
+
+                        self.face_normals[i, j] = normal
+                        self.face_tangentials[i, j] = tangent
 
     @profile
     def get_mesh_quality(self, metric="aspect_ratio"):
