@@ -31,3 +31,6 @@ To enable 3D mesh generation, uncomment the relevant section in the `__main__` b
 
 ## License
 MIT License
+
+## Author
+Hui Zhang (Eric) 2025
