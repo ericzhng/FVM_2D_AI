@@ -15,14 +15,17 @@ class Mesh:
         """
         Initializes the Mesh object with empty attributes.
         """
-        self.mesh_file = np.array([])
         self.dim = 0
-        self.node_tags = np.array([])
-        self.node_coords = np.array([])
-        self.elem_tags = np.array([])
-        self.elem_conn = np.array([])
         self.nelem = 0
         self.nnode = 0
+
+        # raw data
+        self.node_tags = np.array([])
+        self.elem_tags = np.array([])
+        self.node_coords = np.array([])
+        self.elem_conn = np.array([])
+
+        # derived
         self.cell_volumes = np.array([])
         self.cell_centroids = np.array([])
         self.face_normals = np.array([])
@@ -42,20 +45,16 @@ class Mesh:
         Args:
             mesh_file (str): Path to the mesh file (e.g., .msh).
         """
-        self.mesh_file = mesh_file
         gmsh.initialize()
-        gmsh.open(self.mesh_file)
+        gmsh.open(mesh_file)
 
         self.node_tags, self.node_coords, _ = gmsh.model.mesh.getNodes()
         self.node_coords = np.array(self.node_coords).reshape(-1, 3)
-
         self.nnode = len(self.node_tags)
 
         elem_types, elem_tags, node_connectivity = gmsh.model.mesh.getElements()
-
         max_dim = 0
         main_elem_type_idx = -1
-
         for i, e_type in enumerate(elem_types):
             _, dim, _, _, _, _ = gmsh.model.mesh.getElementProperties(e_type)
             if dim > max_dim:
@@ -168,7 +167,9 @@ class Mesh:
             for i in range(self.nelem):
                 volume = 0.0
                 for j, face_nodes in enumerate(self.elem_faces[i]):
-                    node_indices_face = [self.node_tag_map[tag] for tag in face_nodes]
+                    node_indices_face = np.array(
+                        [self.node_tag_map[tag] for tag in face_nodes]
+                    )
                     face_midpoint = np.mean(self.node_coords[node_indices_face], axis=0)
                     face_normal = self.face_normals[i, j]
                     face_area = self.face_areas[i, j]
@@ -404,7 +405,6 @@ class Mesh:
         Prints a summary of the mesh information.
         """
         print("\n--- Mesh Summary ---")
-        print(f"Mesh File: {self.mesh_file}")
         print(f"Mesh Dimension: {self.dim}D")
         print(f"Number of Nodes: {self.nnode}")
         print(f"Number of Elements: {self.nelem}")
